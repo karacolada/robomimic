@@ -15,6 +15,7 @@ Args:
     debug (bool): set this flag to run a quick training run for debugging purposes    
 """
 
+import isaacgym
 import argparse
 import json
 import numpy as np
@@ -261,7 +262,7 @@ def train(config, device):
 
                 print("\nEpoch {} Rollouts took {}s (avg) with results:".format(epoch, rollout_logs["time"]))
                 print('Env: {}'.format(env_name))
-                print(json.dumps(rollout_logs, sort_keys=True, indent=4))
+                print(rollout_logs)
 
             # checkpoint and video saving logic
             updated_stats = TrainUtils.should_save_from_rollout_logs(

@@ -13,6 +13,8 @@ import robomimic.utils.obs_utils as ObsUtils
 from gym_grasp.utils.rlgames_utils import get_rlgames_env_creator
 from gym_grasp.utils.utils import  set_seed
 
+import torch
+
 class EnvGymGrasp(EB.EnvBase):
     """Wrapper class for gym grasp envs"""
     def __init__(
@@ -45,7 +47,7 @@ class EnvGymGrasp(EB.EnvBase):
         self._current_done = None
         self._done = None
         # sets seed. if seed is -1 will pick a random one
-        kwargs["seed"] = set_seed(kwargs["seed"], torch_deterministic=kwargs["torch_deterministic"])
+        #kwargs["seed"] = set_seed(kwargs["seed"], torch_deterministic=kwargs["torch_deterministic"])
         create_gym_grasp_env = get_rlgames_env_creator(
             kwargs["task"],
             kwargs["task_name"],
@@ -70,11 +72,11 @@ class EnvGymGrasp(EB.EnvBase):
             done (bool): whether the task is done
             info (dict): extra information
         """
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = self.env.step(torch.Tensor(action).unsqueeze(0))
         self._current_obs = obs
         self._current_reward = reward
         self._current_done = done
-        return self.get_observation(obs), reward, self.is_done(), info
+        return self.get_observation(obs), self.get_reward(), self.is_done(), info
 
     def reset(self):
         """
@@ -88,12 +90,16 @@ class EnvGymGrasp(EB.EnvBase):
         self._current_done = None
         return self.get_observation(self._current_obs)
 
-    def render(self):
+    def render(self, mode="human", height=None, width=None, camera_name=None, **kwargs):
         """
-        Render from simulation to on-screen window.
+        Render from simulation to either an on-screen window or off-screen to RGB array.
+
+        Args:
+            mode (str): pass "human" for on-screen rendering or "rgb_array" for off-screen rendering
+            height (int): height of image to render - only used if mode is "rgb_array"
+            width (int): width of image to render - only used if mode is "rgb_array"
         """
-        #self.env.render()
-        pass  # render is called within step in gym-grasp envs
+        raise NotImplementedError("mode={} is not implemented".format(mode))
 
     def get_observation(self, obs=None):
         """
@@ -106,21 +112,24 @@ class EnvGymGrasp(EB.EnvBase):
         if obs is None:
             assert self._current_obs is not None
             obs = self._current_obs
-        return { "flat" : np.copy(obs) }
+        ret = {}
+        for k in obs.keys():
+            ret[k] = np.copy(obs[k].cpu())
+        return ret
 
     def get_reward(self):
         """
         Get current reward.
         """
         assert self._current_reward is not None
-        return self._current_reward
+        return np.copy(self._current_reward.cpu())
 
     def is_done(self):
         """
         Check if the task is done (not necessarily successful).
         """
         assert self._current_done is not None
-        return self._current_done
+        return np.copy(self._current_done.cpu())
 
     def is_success(self):
         """
@@ -128,10 +137,6 @@ class EnvGymGrasp(EB.EnvBase):
         { str: bool } with at least a "task" key for the overall task success,
         and additional optional keys corresponding to other task criteria.
         """
-        if hasattr(self.env.unwrapped, "_check_success"):
-            return self.env.unwrapped._check_success()
-
-        # gym envs generally don't check task success - we only compare returns
         return { "task" : False }
 
     @property
