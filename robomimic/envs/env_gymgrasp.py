@@ -106,7 +106,7 @@ class EnvGymGrasp(EB.EnvBase):
         Get current environment observation dictionary.
 
         Args:
-            ob (np.array): current flat observation vector to wrap and provide as a dictionary.
+            ob (dict): current observation dictionary.
                 If not provided, uses self._current_obs.
         """
         if obs is None:
