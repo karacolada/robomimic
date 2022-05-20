@@ -688,125 +688,21 @@ class BC_EXT(BC):
         input_batch["actions"] = batch["actions"][:, -1, :]  # choose only last action from sequence
         return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
 
-    def train_on_batch(self, batch, epoch, validate=False):
+    def _build_obs_history(self, obs_dict):
         """
-        Training on a single batch of data.
+        Build observation history for extended input to policy.
 
         Args:
-            batch (dict): dictionary with torch.Tensors sampled
-                from a data loader and filtered by @process_batch_for_training
-
-            epoch (int): epoch number - required by some Algos that need
-                to perform staged training and early stopping
-
-            validate (bool): if True, don't perform any learning updates.
-
-        Returns:
-            info (dict): dictionary of relevant inputs, outputs, and losses
-                that might be relevant for logging
+            obs_dict (dict): current observation
         """
-        with TorchUtils.maybe_no_grad(no_grad=validate):
-            info = super(BC, self).train_on_batch(batch, epoch, validate=validate)
-            predictions = self._forward_training(batch)
-            losses = self._compute_losses(predictions, batch)
-
-            info["predictions"] = TensorUtils.detach(predictions)
-            info["losses"] = TensorUtils.detach(losses)
-
-            if not validate:
-                step_info = self._train_step(losses)
-                info.update(step_info)
-
-        return info
-
-    def _forward_training(self, batch):
-        """
-        Internal helper function for BC algo class. Compute forward pass
-        and return network outputs in @predictions dict.
-
-        Args:
-            batch (dict): dictionary with torch.Tensors sampled
-                from a data loader and filtered by @process_batch_for_training
-
-        Returns:
-            predictions (dict): dictionary containing network outputs
-        """
-        predictions = OrderedDict()
-        actions = self.nets["policy"](obs_dict=batch["obs"], goal_dict=batch["goal_obs"])
-        predictions["actions"] = actions
-        return predictions
-
-    def _compute_losses(self, predictions, batch):
-        """
-        Internal helper function for BC algo class. Compute losses based on
-        network outputs in @predictions dict, using reference labels in @batch.
-
-        Args:
-            predictions (dict): dictionary containing network outputs, from @_forward_training
-            batch (dict): dictionary with torch.Tensors sampled
-                from a data loader and filtered by @process_batch_for_training
-
-        Returns:
-            losses (dict): dictionary of losses computed over the batch
-        """
-        losses = OrderedDict()
-        a_target = batch["actions"]
-        actions = predictions["actions"]
-        losses["l2_loss"] = nn.MSELoss()(actions, a_target)
-        losses["l1_loss"] = nn.SmoothL1Loss()(actions, a_target)
-        # cosine direction loss on eef delta position
-        losses["cos_loss"] = LossUtils.cosine_loss(actions[..., :3], a_target[..., :3])
-
-        action_losses = [
-            self.algo_config.loss.l2_weight * losses["l2_loss"],
-            self.algo_config.loss.l1_weight * losses["l1_loss"],
-            self.algo_config.loss.cos_weight * losses["cos_loss"],
-        ]
-        action_loss = sum(action_losses)
-        losses["action_loss"] = action_loss
-        return losses
-
-    def _train_step(self, losses):
-        """
-        Internal helper function for BC algo class. Perform backpropagation on the
-        loss tensors in @losses to update networks.
-
-        Args:
-            losses (dict): dictionary of losses computed over the batch, from @_compute_losses
-        """
-
-        # gradient step
-        info = OrderedDict()
-        policy_grad_norms = TorchUtils.backprop_for_loss(
-            net=self.nets["policy"],
-            optim=self.optimizers["policy"],
-            loss=losses["action_loss"],
-        )
-        info["policy_grad_norms"] = policy_grad_norms
-        return info
-
-    def log_info(self, info):
-        """
-        Process info dictionary from @train_on_batch to summarize
-        information to pass to tensorboard for logging.
-
-        Args:
-            info (dict): dictionary of info
-
-        Returns:
-            loss_log (dict): name -> summary statistic
-        """
-        log = super(BC, self).log_info(info)
-        log["Loss"] = info["losses"]["action_loss"].item()
-        if "l2_loss" in info["losses"]:
-            log["L2_Loss"] = info["losses"]["l2_loss"].item()
-        if "l1_loss" in info["losses"]:
-            log["L1_Loss"] = info["losses"]["l1_loss"].item()
-        if "cos_loss" in info["losses"]:
-            log["Cosine_Loss"] = info["losses"]["cos_loss"].item()
-        if "policy_grad_norms" in info:
-            log["Policy_Grad_Norms"] = info["policy_grad_norms"]
-        return log
+        if self._obs_history_length == 0:
+            self.obs_history = obs_dict
+            self._obs_history_length = 1
+        elif self._obs_history_length < self.algo_config.ext.history_length:
+            self.obs_history = {k: torch.hstack((self.obs_history[k], obs_dict[k])) for k in obs_dict}
+            self._obs_history_length += 1
+        else:  # need to trim in the front
+            self.obs_history = {k: torch.hstack((self.obs_history[k][:,obs_dict[k].shape[1]:], obs_dict[k])) for k in obs_dict}
 
     def get_action(self, obs_dict, goal_dict=None):
         """
@@ -820,4 +716,11 @@ class BC_EXT(BC):
             action (torch.Tensor): action tensor
         """
         assert not self.nets.training
-        return self.nets["policy"](obs_dict, goal_dict=goal_dict)
+        self._build_obs_history(obs_dict)
+        if self._obs_history_length < self.algo_config.ext.history_length:
+            return torch.zeros(self.ac_dim).unsqueeze(0).to(self.device)
+        else:
+            return self.nets["policy"](self.obs_history, goal_dict=goal_dict)
+
+    def reset(self):
+        self._obs_history_length = 0
