@@ -683,9 +683,9 @@ class BC_EXT(BC):
                 will be used for training 
         """
         input_batch = dict()
-        input_batch["obs"] = {k: batch["obs"][k][:, 0, :] for k in batch["obs"]}
+        input_batch["obs"] = batch["obs"]  # keep sequence of observations
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
-        input_batch["actions"] = batch["actions"][:, 0, :]
+        input_batch["actions"] = batch["actions"][:, -1, :]  # choose only last action from sequence
         return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
 
     def train_on_batch(self, batch, epoch, validate=False):

@@ -232,7 +232,7 @@
                     },
                     "ext": {
                         "enabled": false,
-                        "history_length": 2
+                        "history_length": 10
                     },
                     "freeze_encoder_epoch": -1
                 },
@@ -282,7 +282,7 @@
             },
             "ext": {
                 "enabled": false,
-                "history_length": 2
+                "history_length": 10
             }
         }
     },

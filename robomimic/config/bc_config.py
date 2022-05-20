@@ -84,4 +84,4 @@ class BCConfig(BaseConfig):
 
         # EXT
         self.algo.ext.enabled = False       # whether to use an extended observation state
-        self.algo.ext.history_length = 2    # number of observations
+        self.algo.ext.history_length = 10   # number of observations - should match train.seq_length
