@@ -230,6 +230,10 @@
                             400
                         ]
                     },
+                    "ext": {
+                        "enabled": false,
+                        "history_length": 2
+                    },
                     "freeze_encoder_epoch": -1
                 },
                 "actor": {
@@ -275,6 +279,10 @@
                 "kwargs": {
                     "bidirectional": false
                 }
+            },
+            "ext": {
+                "enabled": false,
+                "history_length": 2
             }
         }
     },

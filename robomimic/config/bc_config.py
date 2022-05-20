@@ -81,3 +81,7 @@ class BCConfig(BaseConfig):
         self.algo.rnn.open_loop = False     # if True, action predictions are only based on a single observation (not sequence)
         self.algo.rnn.kwargs.bidirectional = False            # rnn kwargs
         self.algo.rnn.kwargs.do_not_lock_keys()
+
+        # EXT
+        self.algo.ext.enabled = False       # whether to use an extended observation state
+        self.algo.ext.history_length = 2    # number of observations

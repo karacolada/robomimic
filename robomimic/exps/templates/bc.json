@@ -135,6 +135,10 @@
             "kwargs": {
                 "bidirectional": false
             }
+        },
+        "ext": {
+            "enabled": false,
+            "history_length": 2
         }
     },
     "observation": {

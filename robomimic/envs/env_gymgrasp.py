@@ -103,7 +103,7 @@ class EnvGymGrasp(EB.EnvBase):
 
     def get_observation(self, obs=None):
         """
-        Get current environment observation dictionary.
+        Get current flattened environment observation dictionary.
 
         Args:
             ob (dict): current observation dictionary.
@@ -114,7 +114,7 @@ class EnvGymGrasp(EB.EnvBase):
             obs = self._current_obs
         ret = {}
         for k in obs.keys():
-            ret[k] = np.copy(obs[k].cpu())
+            ret[k] = np.copy(obs[k].flatten().cpu())
         return ret
 
     def get_reward(self):
