@@ -46,8 +46,6 @@ class EnvGymGrasp(EB.EnvBase):
         self._current_reward = None
         self._current_done = None
         self._done = None
-        # sets seed. if seed is -1 will pick a random one
-        #kwargs["seed"] = set_seed(kwargs["seed"], torch_deterministic=kwargs["torch_deterministic"])
         create_gym_grasp_env = get_rlgames_env_creator(
             kwargs["task"],
             kwargs["task_name"],
@@ -137,7 +135,7 @@ class EnvGymGrasp(EB.EnvBase):
         { str: bool } with at least a "task" key for the overall task success,
         and additional optional keys corresponding to other task criteria.
         """
-        return { "task" : False }
+        return { "task" : self.env.successes.sum() > 0 }
 
     @property
     def action_dimension(self):
