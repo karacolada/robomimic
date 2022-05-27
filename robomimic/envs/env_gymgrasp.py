@@ -15,6 +15,8 @@ from gym_grasp.utils.utils import  set_seed
 
 import torch
 
+import time
+
 class EnvGymGrasp(EB.EnvBase):
     """Wrapper class for gym grasp envs"""
     def __init__(
@@ -56,6 +58,7 @@ class EnvGymGrasp(EB.EnvBase):
             multi_gpu=kwargs["multi_gpu"],
         )
         self.env = create_gym_grasp_env()
+        self.success_log_path = "success_log_{}".format(int(time.time()))
 
     def step(self, action):
         """
@@ -86,6 +89,7 @@ class EnvGymGrasp(EB.EnvBase):
         self._current_obs = self.env.reset()
         self._current_reward = None
         self._current_done = None
+        self.success_log_path = "success_log_{}.txt".format(time.time())
         return self.get_observation(self._current_obs)
 
     def render(self, mode="human", height=None, width=None, camera_name=None, **kwargs):
@@ -135,6 +139,8 @@ class EnvGymGrasp(EB.EnvBase):
         { str: bool } with at least a "task" key for the overall task success,
         and additional optional keys corresponding to other task criteria.
         """
+        with open(self.success_log_path, "a") as f:
+            f.write(np.array_str(self.env.successes.numpy())+"\n")
         return { "task" : self.env.successes.sum() > 0 }
 
     @property
