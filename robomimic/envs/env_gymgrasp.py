@@ -59,6 +59,7 @@ class EnvGymGrasp(EB.EnvBase):
         )
         self.env = create_gym_grasp_env()
         self.success_log_path = "success_log_{}".format(int(time.time()))
+        self.old_successes = self.env.successes
 
     def step(self, action):
         """
@@ -90,6 +91,7 @@ class EnvGymGrasp(EB.EnvBase):
         self._current_reward = None
         self._current_done = None
         self.success_log_path = "success_log_{}.txt".format(time.time())
+        self.old_successes = self.env.successes
         return self.get_observation(self._current_obs)
 
     def render(self, mode="human", height=None, width=None, camera_name=None, **kwargs):
@@ -141,7 +143,8 @@ class EnvGymGrasp(EB.EnvBase):
         """
         with open(self.success_log_path, "a") as f:
             f.write(np.array_str(self.env.successes.numpy())+"\n")
-        return { "task" : self.env.successes.sum() > 0 }
+        # Careful: successes is not reset on environment reset. Once a task is finished, successes is increased, so >0 is a terrible measure
+        return { "task" : self.env.successes.sum() > self.old_successes.sum() }
 
     @property
     def action_dimension(self):
