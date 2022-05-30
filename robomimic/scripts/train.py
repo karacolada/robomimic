@@ -84,6 +84,20 @@ def train(config, device):
         env_meta["env_name"] = config.experiment.env
         print("=" * 30 + "\n" + "Replacing Env to {}\n".format(env_meta["env_name"]) + "=" * 30)
 
+    camera_0 = dict(type="rgb",
+                    pos=[ 0.0, -0.5, 1.3 ],
+                    lookat=[ 0,  0, 0.8 ],
+                    horizontal_fov=70,
+                    width=128,
+                    height=128,
+                )
+    cameras = dict(save_recordings=True,
+                   convert_to_pointcloud=False,
+                   convert_to_voxelgrid=False,
+                   camera0=camera_0)
+    env_meta["env_kwargs"]["task"]["cameras"] = cameras
+    env_meta["env_kwargs"]["task"]["reset"]["maxEpisodeLength"] = config.experiment.rollout.horizon
+
     # create environment
     envs = OrderedDict()
     if config.experiment.rollout.enabled:
@@ -296,6 +310,13 @@ def train(config, device):
                 ckpt_path=os.path.join(ckpt_dir, epoch_ckpt_name + ".pth"),
                 obs_normalization_stats=obs_normalization_stats,
             )
+
+        # Move recordings
+        recordings = [f for f in os.listdir() if 'color.mp4' in f.lower()]
+        os.mkdir(os.path.join(video_dir, epoch_ckpt_name))
+        for rec in recordings:
+            new_path = os.path.join(video_dir, epoch_ckpt_name, rec)
+            os.rename(rec, new_path)
 
         # Finally, log memory usage in MB
         process = psutil.Process(os.getpid())
