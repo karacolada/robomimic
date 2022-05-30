@@ -294,6 +294,13 @@ def train(config, device):
             if updated_stats["ckpt_reason"] is not None:
                 ckpt_reason = updated_stats["ckpt_reason"]
 
+            # Move recordings
+            recordings = [f for f in os.listdir() if 'color.mp4' in f.lower()]
+            os.mkdir(os.path.join(video_dir, epoch_ckpt_name))
+            for rec in recordings:
+                new_path = os.path.join(video_dir, epoch_ckpt_name, rec)
+                os.rename(rec, new_path)                
+
         # Only keep saved videos if the ckpt should be saved (but not because of validation score)
         should_save_video = (should_save_ckpt and (ckpt_reason != "valid")) or config.experiment.keep_all_videos
         if video_paths is not None and not should_save_video:
@@ -310,13 +317,6 @@ def train(config, device):
                 ckpt_path=os.path.join(ckpt_dir, epoch_ckpt_name + ".pth"),
                 obs_normalization_stats=obs_normalization_stats,
             )
-
-        # Move recordings
-        recordings = [f for f in os.listdir() if 'color.mp4' in f.lower()]
-        os.mkdir(os.path.join(video_dir, epoch_ckpt_name))
-        for rec in recordings:
-            new_path = os.path.join(video_dir, epoch_ckpt_name, rec)
-            os.rename(rec, new_path)
 
         # Finally, log memory usage in MB
         process = psutil.Process(os.getpid())
