@@ -59,7 +59,10 @@ class EnvGymGrasp(EB.EnvBase):
             multi_gpu=kwargs["multi_gpu"],
         )
         self.env = create_gym_grasp_env()
-        os.mkdir("success_logs")
+        try:
+            os.mkdir("success_logs")
+        except FileExistsError:
+            pass
         self.success_log_path = os.path.join("success_logs", "success_log_{}".format(time.time()))
         self.old_successes = self.env.successes
 
