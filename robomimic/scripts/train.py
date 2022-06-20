@@ -84,18 +84,20 @@ def train(config, device):
         env_meta["env_name"] = config.experiment.env
         print("=" * 30 + "\n" + "Replacing Env to {}\n".format(env_meta["env_name"]) + "=" * 30)
 
-    camera_0 = dict(type="rgb",
-                    pos=[ 0.0, -0.5, 1.3 ],
-                    lookat=[ 0,  0, 0.8 ],
-                    horizontal_fov=70,
-                    width=128,
-                    height=128,
-                )
-    cameras = dict(save_recordings=True,
-                   convert_to_pointcloud=False,
-                   convert_to_voxelgrid=False,
-                   camera0=camera_0)
-    env_meta["env_kwargs"]["task"]["cameras"] = cameras
+    # prepare env for learning
+    if config.experiment.render_video:
+        camera_0 = dict(type="rgb",
+                        pos=[ 0.0, -0.5, 1.3 ],
+                        lookat=[ 0,  0, 0.8 ],
+                        horizontal_fov=70,
+                        width=128,
+                        height=128,
+                    )
+        cameras = dict(save_recordings=True,
+                       convert_to_pointcloud=False,
+                       convert_to_voxelgrid=False,
+                       camera0=camera_0)
+        env_meta["env_kwargs"]["task"]["cameras"] = cameras
     env_meta["env_kwargs"]["task"]["reset"]["maxEpisodeLength"] = config.experiment.rollout.horizon
 
     # create environment
