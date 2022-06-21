@@ -99,6 +99,7 @@ def train(config, device):
                        camera0=camera_0)
         env_meta["env_kwargs"]["task"]["cameras"] = cameras
     env_meta["env_kwargs"]["task"]["reset"]["maxEpisodeLength"] = config.experiment.rollout.horizon
+    env_meta["env_kwargs"]["task"]["asset"].pop("assetRoot")
 
     # create environment
     envs = OrderedDict()

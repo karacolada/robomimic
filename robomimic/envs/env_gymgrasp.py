@@ -121,9 +121,16 @@ class EnvGymGrasp(EB.EnvBase):
         if obs is None:
             assert self._current_obs is not None
             obs = self._current_obs
+        # split obs on LiftObject, remove this otherwise, just proof of concept code
+        split_obs = {}
+        start_idx = 0
+        for obs_type in self.env.object_obs + self.env.robot_obs:
+            end_idx = start_idx + self.env.num_obs_dict[obs_type]
+            split_obs[obs_type] = obs["obs"][:,start_idx:end_idx]
+            start_idx = end_idx
         ret = {}
-        for k in obs.keys():
-            ret[k] = np.copy(obs[k].flatten().cpu())
+        for k in split_obs.keys():
+            ret[k] = np.copy(split_obs[k].flatten().cpu())
         return ret
 
     def get_reward(self):
