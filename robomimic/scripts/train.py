@@ -85,7 +85,7 @@ def train(config, device):
         print("=" * 30 + "\n" + "Replacing Env to {}\n".format(env_meta["env_name"]) + "=" * 30)
 
     # prepare env for learning
-    if config.experiment.render_video:
+    if config.experiment.gymgrasp_recording:
         camera_0 = dict(type="rgb",
                         pos=[ 0.0, -0.5, 1.3 ],
                         lookat=[ 0,  0, 0.8 ],
@@ -98,6 +98,12 @@ def train(config, device):
                        convert_to_voxelgrid=False,
                        camera0=camera_0)
         env_meta["env_kwargs"]["task"]["cameras"] = cameras
+        # remove old reccordings if present
+        old_loc = f"runs/{env_meta['env_kwargs']['task_name']}/recordings"
+        try:
+            os.rmdir(old_loc)
+        except:
+            pass
     env_meta["env_kwargs"]["task"]["reset"]["maxEpisodeLength"] = config.experiment.rollout.horizon
 
     # create environment
@@ -297,11 +303,12 @@ def train(config, device):
                 ckpt_reason = updated_stats["ckpt_reason"]
 
             # Move recordings
-            recordings = [f for f in os.listdir() if 'color.mp4' in f.lower()]
-            os.mkdir(os.path.join(video_dir, epoch_ckpt_name))
-            for rec in recordings:
-                new_path = os.path.join(video_dir, epoch_ckpt_name, rec)
-                os.rename(rec, new_path)                
+            if config.experiment.gymgrasp_recording:
+                old_loc = f"runs/{env_meta['env_kwargs']['task_name']}/recordings"
+                new_loc = os.path.join(video_dir, epoch_ckpt_name)
+                os.mkdir(new_loc)
+                os.rename(old_loc, new_loc)
+                os.mkdir(old_loc)             
 
         # Only keep saved videos if the ckpt should be saved (but not because of validation score)
         should_save_video = (should_save_ckpt and (ckpt_reason != "valid")) or config.experiment.keep_all_videos
@@ -380,7 +387,6 @@ def main(args):
     except Exception as e:
         res_str = "run failed with error:\n{}\n\n{}".format(e, traceback.format_exc())
     print(res_str)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

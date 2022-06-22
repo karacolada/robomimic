@@ -107,6 +107,7 @@ class BaseConfig(Config):
         ## rendering config ##
         self.experiment.render = False                              # render on-screen or not
         self.experiment.render_video = True                         # render evaluation rollouts to videos
+        self.experiment.gymgrasp_recording = False                  # record gymgrasp evaluation rollouts
         self.experiment.keep_all_videos = False                     # save all videos, instead of only saving those for saved model checkpoints
         self.experiment.video_skip = 5                              # render video frame every n environment steps during rollout
 
