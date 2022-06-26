@@ -59,11 +59,6 @@ class EnvGymGrasp(EB.EnvBase):
             multi_gpu=kwargs["multi_gpu"],
         )
         self.env = create_gym_grasp_env()
-        try:
-            os.mkdir("success_logs")
-        except FileExistsError:
-            pass
-        self.success_log_path = os.path.join("success_logs", "success_log_{}".format(time.time()))
         self.old_successes = self.env.successes
 
     def step(self, action):
@@ -146,8 +141,6 @@ class EnvGymGrasp(EB.EnvBase):
         { str: bool } with at least a "task" key for the overall task success,
         and additional optional keys corresponding to other task criteria.
         """
-        with open(self.success_log_path, "a") as f:
-            f.write(np.array_str(self.env.successes.numpy())+"\n")
         return { "task" : self.env.successes.sum() > self.old_successes.sum() }
 
     @property
