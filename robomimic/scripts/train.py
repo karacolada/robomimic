@@ -104,7 +104,10 @@ def train(config, device):
             os.rmdir(old_loc)
         except:
             pass
-    env_meta["env_kwargs"]["task"]["reset"]["maxEpisodeLength"] = config.experiment.rollout.horizon
+    try:
+        env_meta["env_kwargs"]["task"]["reset"]["maxEpisodeLength"] = config.experiment.rollout.horizon
+    except KeyError:  # not gymgrasp env
+        pass
 
     # create environment
     envs = OrderedDict()
