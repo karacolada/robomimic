@@ -475,3 +475,44 @@ class RolloutPolicy(object):
             goal = self._prepare_observation(goal)
         ac = self.policy.get_action(obs_dict=ob, goal_dict=goal)
         return TensorUtils.to_numpy(ac[0])
+
+class ParallelRolloutPolicy(RolloutPolicy):
+    """
+    Wraps @Algo object to make it easy to run policies in a rollout loop with parallel environments (gymgrasp).
+    """
+    def __init__(self, policy, obs_normalization_stats=None):
+        super().__init__(policy, obs_normalization_stats)
+
+    def _prepare_observation(self, ob):
+        """
+        Prepare raw observation dict from environment for policy.
+
+        Args:
+            ob (dict): single observation dictionary from environments ("batch" dimension as no. environments, 
+                and np.array values for each key)
+        """
+        if self.obs_normalization_stats is not None:
+            ob = ObsUtils.normalize_obs(ob, obs_normalization_stats=self.obs_normalization_stats)
+        ob = TensorUtils.to_tensor(ob)
+        ob = TensorUtils.to_device(ob, self.policy.device)
+        ob = TensorUtils.to_float(ob)
+        return ob
+
+    def __repr__(self):
+        """Pretty print network description"""
+        return self.policy.__repr__()
+
+    def __call__(self, ob, goal=None):
+        """
+        Produce action from raw observation dict (and maybe goal dict) from environment.
+
+        Args:
+            ob (dict): single observation dictionary from environment (no batch dimension, 
+                and np.array values for each key)
+            goal (dict): goal observation
+        """
+        ob = self._prepare_observation(ob)
+        if goal is not None:
+            goal = self._prepare_observation(goal)
+        ac = self.policy.get_action(obs_dict=ob, goal_dict=goal)
+        return TensorUtils.to_numpy(ac)

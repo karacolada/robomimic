@@ -39,8 +39,9 @@ import robomimic.utils.obs_utils as ObsUtils
 import robomimic.utils.env_utils as EnvUtils
 import robomimic.utils.file_utils as FileUtils
 from robomimic.config import config_factory
-from robomimic.algo import algo_factory, RolloutPolicy
+from robomimic.algo import algo_factory, RolloutPolicy, ParallelRolloutPolicy
 from robomimic.utils.log_utils import PrintLogger, DataLogger
+from robomimic.envs.env_base import EnvType
 
 
 def train(config, device):
@@ -84,30 +85,29 @@ def train(config, device):
         env_meta["env_name"] = config.experiment.env
         print("=" * 30 + "\n" + "Replacing Env to {}\n".format(env_meta["env_name"]) + "=" * 30)
 
-    # prepare env for learning
-    if config.experiment.gymgrasp_recording:
-        camera_0 = dict(type="rgb",
-                        pos=[ 0.0, -0.5, 1.3 ],
-                        lookat=[ 0,  0, 0.8 ],
-                        horizontal_fov=70,
-                        width=128,
-                        height=128,
-                    )
-        cameras = dict(save_recordings=True,
-                       convert_to_pointcloud=False,
-                       convert_to_voxelgrid=False,
-                       camera0=camera_0)
-        env_meta["env_kwargs"]["task"]["cameras"] = cameras
-        # remove old reccordings if present
-        old_loc = f"runs/{env_meta['env_kwargs']['task_name']}/recordings"
-        try:
-            os.rmdir(old_loc)
-        except:
-            pass
-    try:
+    if env_meta["type"] == EnvType.GYMGRASP_TYPE:
+        env_meta["env_kwargs"]["task"]["haptics"]["enabled"] = False
         env_meta["env_kwargs"]["task"]["reset"]["maxEpisodeLength"] = config.experiment.rollout.horizon
-    except KeyError:  # not gymgrasp env
-        pass
+        env_meta["env_kwargs"]["task"]["env"]["numEnvs"] = config.experiment.rollout.n
+        if config.experiment.gymgrasp_recording:
+            camera_0 = dict(type="rgb",
+                            pos=[ 0.0, -0.5, 1.3 ],
+                            lookat=[ 0,  0, 0.8 ],
+                            horizontal_fov=70,
+                            width=128,
+                            height=128,
+                        )
+            cameras = dict(save_recordings=True,
+                           convert_to_pointcloud=False,
+                           convert_to_voxelgrid=False,
+                           camera0=camera_0)
+            env_meta["env_kwargs"]["task"]["cameras"] = cameras
+            # remove old reccordings if present
+            old_loc = f"runs/{env_meta['env_kwargs']['task_name']}/recordings"
+            try:
+                os.rmdir(old_loc)
+            except:
+                pass
 
     # create environment
     envs = OrderedDict()
@@ -260,7 +260,10 @@ def train(config, device):
         if config.experiment.rollout.enabled and (epoch > config.experiment.rollout.warmstart) and rollout_check:
 
             # wrap model as a RolloutPolicy to prepare for rollouts
-            rollout_model = RolloutPolicy(model, obs_normalization_stats=obs_normalization_stats)
+            if env_meta["type"] == EnvType.GYMGRASP_TYPE:
+                rollout_model = ParallelRolloutPolicy(model, obs_normalization_stats=obs_normalization_stats)
+            else:
+                rollout_model = RolloutPolicy(model, obs_normalization_stats=obs_normalization_stats)
 
             num_episodes = config.experiment.rollout.n
             all_rollout_logs, video_paths = TrainUtils.rollout_with_stats(

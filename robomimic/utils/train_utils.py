@@ -22,6 +22,7 @@ import robomimic.utils.log_utils as LogUtils
 
 from robomimic.utils.dataset import SequenceDataset
 from robomimic.envs.env_base import EnvBase
+from robomimic.envs.env_gymgrasp import EnvGymGrasp
 from robomimic.algo import RolloutPolicy
 
 
@@ -252,6 +253,116 @@ def run_rollout(
 
     return results
 
+def run_parallel_rollouts(
+        policy, 
+        env, 
+        horizon,
+        use_goals=False,
+        render=False,
+        video_writer=None,
+        video_skip=5,
+        terminate_on_success=False,
+    ):
+    """
+    Runs parallel rollouts in an environment with the current network parameters.
+
+    Args:
+        policy (RolloutPolicy instance): policy to use for rollouts.
+
+        env (EnvBase instance): environment to use for rollouts.
+
+        horizon (int): maximum number of steps to roll the agent out for
+
+        use_goals (bool): if True, agent is goal-conditioned, so provide goal observations from env
+
+        render (bool): if True, render the rollout to the screen
+
+        video_writer (imageio Writer instance): if not None, use video writer object to append frames at 
+            rate given by @video_skip
+
+        video_skip (int): how often to write video frame
+
+        terminate_on_success (bool): if True, terminate episode early as soon as a success is encountered
+
+    Returns:
+        results (dict): dictionary containing return, success rate, etc.
+    """
+    assert isinstance(policy, RolloutPolicy)
+    assert isinstance(env, EnvGymGrasp)
+
+    policy.start_episode()
+
+    ob_dict = env.reset()
+    goal_dict = None
+    if use_goals:
+        # retrieve goal from the environment
+        goal_dict = env.get_goal()
+
+    results = {}
+    video_count = 0  # video frame counter
+
+    total_reward = 0.
+
+    # track end of episodes
+    dones = np.array([False for _ in range(env.no_envs)])
+    horizons = np.array([horizon for _ in range(env.no_envs)])
+
+    try:
+        for step_i in range(horizon):
+
+            # get action from policy
+            ac = policy(ob=ob_dict, goal=goal_dict)
+
+            if terminate_on_success:
+                # play only zero actions in terminated envs
+                success_ids = torch.nonzero(env.successes["task"])
+                ac[success_ids] = np.zeros(env.action_dimension)
+                # track successes before next step()
+                old_task_successes = deepcopy(env.successes["task"])
+
+            # play action
+            ob_dict, r, done, _ = env.step(ac)
+
+            # render to screen
+            if render:
+                env.render(mode="human")
+
+            # compute reward
+            total_reward += r
+
+            # track finished envs
+            dones = np.logical_or(dones, done)
+            if terminate_on_success:
+                success_changes = torch.nonzero(env.successes["task"] - old_task_successes)
+                horizons[success_changes] = step_i + 1
+
+            # visualization
+            if video_writer is not None:
+                if video_count % video_skip == 0:
+                    video_img = env.render(mode="rgb_array", height=512, width=512)
+                    video_writer.append_data(video_img)
+
+                video_count += 1
+
+            # break if all done
+            if dones.all():
+                break
+
+    except env.rollout_exceptions as e:
+        print("WARNING: got rollout exception {}".format(e))
+
+    print(env.successes)
+
+    results["Return"] = total_reward
+    results["Horizon"] = horizons
+    results["Success_Rate"] = float(env.successes["task"].sum())/env.no_envs
+
+    # log additional success metrics
+    for k in env.successes:
+        if k != "task":
+            results["{}_Success_Rate".format(k)] = float(env.successes[k])/env.no_envs
+
+    return results
 
 def rollout_with_stats(
         policy,
@@ -336,14 +447,23 @@ def rollout_with_stats(
             env.name, horizon, use_goals, num_episodes,
         ))
         rollout_logs = []
-        iterator = range(num_episodes)
+
+        if isinstance(env, EnvGymGrasp):
+            assert num_episodes % env.no_envs == 0
+            iterations = int(num_episodes/env.no_envs)
+            run_fct = run_parallel_rollouts
+        else:
+            iterations = num_episodes
+            run_fct = run_rollout
+
+        iterator = range(iterations)
         if not verbose:
-            iterator = LogUtils.custom_tqdm(iterator, total=num_episodes)
+            iterator = LogUtils.custom_tqdm(iterator, total=iterations)
 
         num_success = 0
         for ep_i in iterator:
             rollout_timestamp = time.time()
-            rollout_info = run_rollout(
+            rollout_info = run_fct(
                 policy=policy,
                 env=env,
                 horizon=horizon,
@@ -358,7 +478,7 @@ def rollout_with_stats(
             num_success += rollout_info["Success_Rate"]
             if verbose:
                 print("Episode {}, horizon={}, num_success={}".format(ep_i + 1, horizon, num_success))
-                print(json.dumps(rollout_info, sort_keys=True, indent=4))
+                print(rollout_info)
 
         if video_dir is not None:
             # close this env's video writer (next env has it's own)

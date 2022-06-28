@@ -74,7 +74,7 @@ class EnvGymGrasp(EB.EnvBase):
             done (bool): whether the task is done
             info (dict): extra information
         """
-        obs, reward, done, info = self.env.step(torch.Tensor(action).unsqueeze(0))
+        obs, reward, done, info = self.env.step(torch.Tensor(action))
         self._current_obs = obs
         self._current_reward = reward
         self._current_done = done
@@ -107,7 +107,7 @@ class EnvGymGrasp(EB.EnvBase):
 
     def get_observation(self, obs=None):
         """
-        Get current flattened environment observation dictionary.
+        Get current environment observation dictionary.
 
         Args:
             ob (dict): current observation dictionary.
@@ -118,7 +118,7 @@ class EnvGymGrasp(EB.EnvBase):
             obs = self._current_obs
         ret = {}
         for k in obs.keys():
-            ret[k] = np.copy(obs[k].flatten().cpu())
+            ret[k] = obs[k].cpu()
         return ret
 
     def get_reward(self):
@@ -142,6 +142,20 @@ class EnvGymGrasp(EB.EnvBase):
         and additional optional keys corresponding to other task criteria.
         """
         return { "task" : self.env.successes.sum() > self.old_successes.sum() }
+
+    @property
+    def no_envs(self):
+        """
+        Returns number of environments.
+        """
+        return len(self.env)
+
+    @property
+    def successes(self):
+        """
+        Needed when multiple environments run in parallel. Returns number of successes that were achieved in each environment.
+        """
+        return { "task": self.env.successes - self.old_successes }
 
     @property
     def action_dimension(self):
