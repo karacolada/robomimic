@@ -351,8 +351,6 @@ def run_parallel_rollouts(
     except env.rollout_exceptions as e:
         print("WARNING: got rollout exception {}".format(e))
 
-    print(env.successes)
-
     results["Return"] = total_reward
     results["Horizon"] = horizons
     results["Success_Rate"] = float(env.successes["task"].sum())/env.no_envs

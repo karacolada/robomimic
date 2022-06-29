@@ -718,7 +718,16 @@ class BC_EXT(BC):
         assert not self.nets.training
         self._build_obs_history(obs_dict)
         if self._obs_history_length < self.algo_config.ext.history_length:
-            return torch.zeros(self.ac_dim).unsqueeze(0).to(self.device)
+            # recognise batches
+            for k in self.obs_shapes.keys():
+                batch_dim = []
+                if obs_dict[k].shape[0] != self.obs_shapes[k][0]:
+                    batch_dim.append(obs_dict[k].shape[0])
+            if len(batch_dim) == 0:  # no batches
+                return torch.zeros(self.ac_dim).unsqueeze(0).to(self.device)
+            else:
+                assert len(set(batch_dim)) == 1 # all equal
+                return torch.zeros(batch_dim[0], self.ac_dim).to(self.device)
         else:
             return self.nets["policy"](self.obs_history, goal_dict=goal_dict)
 
