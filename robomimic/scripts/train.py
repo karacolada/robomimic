@@ -86,7 +86,7 @@ def train(config, device):
         print("=" * 30 + "\n" + "Replacing Env to {}\n".format(env_meta["env_name"]) + "=" * 30)
 
     if env_meta["type"] == EnvType.GYMGRASP_TYPE:
-        env_meta["env_kwargs"]["task"]["haptics"]["enabled"] = False
+        env_meta["env_kwargs"]["task"]["haptics"]["enable"] = False
         env_meta["env_kwargs"]["task"]["reset"]["maxEpisodeLength"] = config.experiment.rollout.horizon
         env_meta["env_kwargs"]["task"]["env"]["numEnvs"] = config.experiment.rollout.n
         if config.experiment.gymgrasp_recording:
