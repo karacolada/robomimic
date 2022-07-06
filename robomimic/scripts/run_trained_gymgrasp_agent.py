@@ -67,112 +67,7 @@ import robomimic
 import robomimic.utils.file_utils as FileUtils
 import robomimic.utils.torch_utils as TorchUtils
 import robomimic.utils.tensor_utils as TensorUtils
-import robomimic.utils.obs_utils as ObsUtils
-from robomimic.envs.env_base import EnvBase
-from robomimic.algo import RolloutPolicy
 from robomimic.utils.train_utils import run_parallel_rollouts
-
-
-
-def rollout(policy, env, horizon, render=False, video_writer=None, video_skip=5, return_obs=False, camera_names=None):
-    """
-    Helper function to carry out rollouts. Supports on-screen rendering, off-screen rendering to a video, 
-    and returns the rollout trajectory.
-
-    Args:
-        policy (instance of RolloutPolicy): policy loaded from a checkpoint
-        env (instance of EnvBase): env loaded from a checkpoint or demonstration metadata
-        horizon (int): maximum horizon for the rollout
-        render (bool): whether to render rollout on-screen
-        video_writer (imageio writer): if provided, use to write rollout to video
-        video_skip (int): how often to write video frames
-        return_obs (bool): if True, return possibly high-dimensional observations along the trajectoryu. 
-            They are excluded by default because the low-dimensional simulation states should be a minimal 
-            representation of the environment. 
-        camera_names (list): determines which camera(s) are used for rendering. Pass more than
-            one to output a video with multiple camera views concatenated horizontally.
-
-    Returns:
-        stats (dict): some statistics for the rollout - such as return, horizon, and task success
-        traj (dict): dictionary that corresponds to the rollout trajectory
-    """
-    assert isinstance(env, EnvBase)
-    assert isinstance(policy, RolloutPolicy)
-    assert not (render and (video_writer is not None))
-
-    policy.start_episode()
-    obs = env.reset()
-
-    results = {}
-    video_count = 0  # video frame counter
-    total_reward = 0.
-    traj = dict(actions=[], rewards=[], dones=[])
-    if return_obs:
-        # store observations too
-        traj.update(dict(obs=[], next_obs=[]))
-    try:
-        for step_i in range(horizon):
-
-            # get action from policy
-            act = policy(ob=obs)
-
-            # play action
-            next_obs, r, done, _ = env.step(act)
-
-            # compute reward
-            total_reward += r
-            success = env.is_success()["task"]
-
-            # visualization
-            if render:
-                env.render(mode="human", camera_name=camera_names[0])
-            if video_writer is not None:
-                if video_count % video_skip == 0:
-                    video_img = []
-                    for cam_name in camera_names:
-                        video_img.append(env.render(mode="rgb_array", height=512, width=512, camera_name=cam_name))
-                    video_img = np.concatenate(video_img, axis=1) # concatenate horizontally
-                    video_writer.append_data(video_img)
-                video_count += 1
-
-            # collect transition
-            traj["actions"].append(act)
-            traj["rewards"].append(r)
-            traj["dones"].append(done)
-            if return_obs:
-                # Note: We need to "unprocess" the observations to prepare to write them to dataset.
-                #       This includes operations like channel swapping and float to uint8 conversion
-                #       for saving disk space.
-                traj["obs"].append(ObsUtils.unprocess_obs_dict(obs))
-                traj["next_obs"].append(ObsUtils.unprocess_obs_dict(next_obs))
-
-            # break if done or if success
-            if done or success:
-                break
-
-            # update for next iter
-            obs = deepcopy(next_obs)
-
-    except env.rollout_exceptions as e:
-        print("WARNING: got rollout exception {}".format(e))
-
-    stats = dict(Return=total_reward, Horizon=(step_i + 1), Success_Rate=float(success))
-
-    if return_obs:
-        # convert list of dict to dict of list for obs dictionaries (for convenient writes to hdf5 dataset)
-        traj["obs"] = TensorUtils.list_of_flat_dict_to_dict_of_list(traj["obs"])
-        traj["next_obs"] = TensorUtils.list_of_flat_dict_to_dict_of_list(traj["next_obs"])
-
-    # list to numpy array
-    for k in traj:
-        if isinstance(traj[k], dict):
-            for kp in traj[k]:
-                traj[k][kp] = np.array(traj[k][kp])
-        else:
-            traj[k] = np.array(traj[k])
-
-    return stats, traj
-
 
 def run_trained_agent(args):
     # some arg checking
@@ -233,11 +128,13 @@ def run_trained_agent(args):
             video_skip=args.video_skip, 
             )
         rollout_stats.append(rollout_info)
+        print(f"Iteration {i} rollout stats:")
+        print(rollout_info)
     rollout_stats = TensorUtils.list_of_flat_dict_to_dict_of_list(rollout_stats)
     avg_rollout_stats = { k : np.mean(rollout_stats[k]) for k in rollout_stats }
     avg_rollout_stats["Num_Success"] = np.sum(rollout_stats["Success_Rate"])
     print("Average Rollout Stats")
-    print(json.dumps(avg_rollout_stats, indent=4))
+    print(avg_rollout_stats)
 
     if write_video:
         video_writer.close()

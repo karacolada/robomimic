@@ -23,7 +23,7 @@ import robomimic.utils.log_utils as LogUtils
 from robomimic.utils.dataset import SequenceDataset
 from robomimic.envs.env_base import EnvBase
 from robomimic.envs.env_gymgrasp import EnvGymGrasp
-from robomimic.algo import RolloutPolicy
+from robomimic.algo import RolloutPolicy, ParallelRolloutPolicy
 
 
 def get_exp_dir(config, auto_remove_exp_dir=False):
@@ -287,7 +287,7 @@ def run_parallel_rollouts(
     Returns:
         results (dict): dictionary containing return, success rate, etc.
     """
-    assert isinstance(policy, RolloutPolicy)
+    assert isinstance(policy, ParallelRolloutPolicy)
     assert isinstance(env, EnvGymGrasp)
 
     policy.start_episode()
