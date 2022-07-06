@@ -98,7 +98,7 @@ def run_trained_agent(args):
             policy=policy,
             env=env,
             horizon=rollout_horizon,
-            render=args.render,
+            render=False,
             video_writer=None,
             )
         rollout_stats.append(rollout_info)
