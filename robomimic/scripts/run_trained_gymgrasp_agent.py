@@ -57,7 +57,7 @@ def run_trained_agent(args):
 
     if args.record:
         camera_0 = dict(type="rgb",
-                        pos=[ 0.0, -0.5, 1.3 ],
+                        pos=[ -0.5, 0, 1.3 ],
                         lookat=[ 0,  0, 0.8 ],
                         horizontal_fov=70,
                         width=900,
@@ -92,6 +92,8 @@ def run_trained_agent(args):
         np.random.seed(args.seed)
         torch.manual_seed(args.seed)
 
+    print("============= Starting Rollouts =============")
+    
     rollout_stats = []
     for i in range(rollout_num_episodes):
         rollout_info = run_parallel_rollouts(
