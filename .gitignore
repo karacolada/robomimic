@@ -123,3 +123,6 @@ venv.bak/
 # training
 bc_trained_models/
 robomimic/scripts/runs
+
+# vscode project settings
+.vscode

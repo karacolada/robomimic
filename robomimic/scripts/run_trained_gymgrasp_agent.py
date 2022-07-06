@@ -41,6 +41,7 @@ import robomimic.utils.file_utils as FileUtils
 import robomimic.utils.torch_utils as TorchUtils
 import robomimic.utils.tensor_utils as TensorUtils
 from robomimic.utils.train_utils import run_parallel_rollouts
+from robomimic.envs.env_base import EnvType
 
 def run_trained_agent(args):
     # relative path to agent
@@ -52,8 +53,11 @@ def run_trained_agent(args):
     # restore policy
     policy, ckpt_dict = FileUtils.policy_from_checkpoint(ckpt_path=ckpt_path, device=device, verbose=True)
 
+    assert ckpt_dict["env_metadata"]["type"] == EnvType.GYMGRASP_TYPE
+
     num_envs = ckpt_dict["env_metadata"]["env_kwargs"]["task"]["env"]["numEnvs"]
     ckpt_dict["env_metadata"]["env_kwargs"]["headless"] = True
+    ckpt_dict["env_metadata"]["env_kwargs"]["task"]["control"]["teleoperated"] = False
 
     if args.record:
         camera_0 = dict(type="rgb",
