@@ -106,6 +106,7 @@ def run_trained_agent(args):
             horizon=rollout_horizon,
             render=False,
             video_writer=None,
+            terminate_on_success=True
             )
         rollout_stats.append(rollout_info)
         print(f"Iteration {i} rollout stats:")
