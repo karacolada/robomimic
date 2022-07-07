@@ -60,6 +60,7 @@ class EnvGymGrasp(EB.EnvBase):
         )
         self.env = create_gym_grasp_env()
         self.old_successes = self.env.successes
+        self.task_name = kwargs["task_name"]
 
     def step(self, action):
         """
@@ -74,7 +75,7 @@ class EnvGymGrasp(EB.EnvBase):
             done (bool): whether the task is done
             info (dict): extra information
         """
-        obs, reward, done, info = self.env.step(torch.Tensor(action))
+        obs, reward, done, info = self.env.step(torch.Tensor(action, device=self.env.device))
         self._current_obs = obs
         self._current_reward = reward
         self._current_done = done
@@ -87,6 +88,8 @@ class EnvGymGrasp(EB.EnvBase):
         Returns:
             observation (dict): initial observation dictionary.
         """
+        #self.env.reset_idx(torch.arange(self.env.num_envs, device=self.env.device))  # produces error, try to write when VideoWriter is None
+        self.env.reset_buf = torch.ones_like(self.env.reset_buf)
         self._current_obs = self.env.reset()
         self._current_reward = None
         self._current_done = None

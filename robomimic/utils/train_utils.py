@@ -25,6 +25,8 @@ from robomimic.envs.env_base import EnvBase
 from robomimic.envs.env_gymgrasp import EnvGymGrasp
 from robomimic.algo import RolloutPolicy, ParallelRolloutPolicy
 
+import glob
+
 
 def get_exp_dir(config, auto_remove_exp_dir=False):
     """
@@ -261,7 +263,7 @@ def run_parallel_rollouts(
         render=False,
         video_writer=None,
         video_skip=5,
-        terminate_on_success=False,
+        terminate_on_success=True,
     ):
     """
     Runs parallel rollouts in an environment with the current network parameters.
@@ -283,6 +285,8 @@ def run_parallel_rollouts(
         video_skip (int): how often to write video frame
 
         terminate_on_success (bool): if True, terminate episode early as soon as a success is encountered
+            in contrast to run_rollout, it is True by default as setting it to False might lead to more successes
+            than rollouts are being run and thus success rates of > 1.
 
     Returns:
         results (dict): dictionary containing return, success rate, etc.
@@ -335,6 +339,12 @@ def run_parallel_rollouts(
             if terminate_on_success:
                 success_changes = torch.nonzero(env.successes["task"] - old_task_successes)
                 horizons[success_changes] = step_i + 1
+                if success_changes.flatten().shape[0] > 0:
+                    for e in success_changes.flatten():
+                        new_videos = glob.glob(f"runs/{env.task_name}/recordings/recording_env_{e}_*.mp4")
+                        for v in new_videos:
+                            new_v = os.path.join(os.path.dirname(v), "valid_"+os.path.basename(v))
+                            os.rename(v, new_v)
 
             # visualization
             if video_writer is not None:
@@ -350,6 +360,18 @@ def run_parallel_rollouts(
 
     except env.rollout_exceptions as e:
         print("WARNING: got rollout exception {}".format(e))
+
+    invalid_videos = []
+    for e in torch.nonzero(env.successes["task"]).flatten():  # leftover videos of successful envs
+        invalid_videos += glob.glob(f"runs/{env.task_name}/recordings/recording_env_{e}_*.mp4")
+    for v in invalid_videos:
+        new_v = os.path.join(os.path.dirname(v), "invalid_"+os.path.basename(v))
+        os.rename(v, new_v)
+    # leftover videos of unsuccessful envs
+    valid_videos = glob.glob(f"runs/{env.task_name}/recordings/recording_env_*.mp4")
+    for v in valid_videos:
+        new_v = os.path.join(os.path.dirname(v), "valid_"+os.path.basename(v))
+        os.rename(v, new_v)
 
     results["Return"] = total_reward
     results["Horizon"] = horizons

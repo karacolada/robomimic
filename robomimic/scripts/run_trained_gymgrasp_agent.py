@@ -4,7 +4,7 @@ The main script for evaluating a policy in an environment.
 Args:
     agent (str): path to saved checkpoint pth file
 
-    n_rollouts (int): number of rollouts to be run
+    n_rollouts (int): number of rollouts to be run, must be either smaller or divisible by num_envs
 
     horizon (int): if provided, override maximum horizon of rollout from the one 
         in the checkpoint
@@ -14,15 +14,19 @@ Args:
 
     seed (int): if provided, set seed for rollouts
 
-    record (bool): if flag is provided, record rollouts
+    record (bool): if flag is provided, record rollouts into runs/recordings/{task_name}/
+
+    n_envs (int): if provided, overwrite number of parallel environments
+
+    resolution (str): (optional) desired resolution in format <width>x<height>, default is 128x128
 
 Example usage:
 
-    # Evaluate a policy with 50 rollouts of maximum horizon 400 and save the recordings.
+    # Evaluate a policy with 50 rollouts in parallel of maximum horizon 400 and save the recordings in 900x900 videos.
     
     python run_trained_gymgrasp_agent.py --agent /path/to/model.pth \
-        --n_rollouts 50 --horizon 400 --seed 0 \
-        --record
+        --n_rollouts 50 --n_envs 50 --horizon 400 --seed 0 \
+        --record --resolution 
 """
 
 import isaacgym
@@ -55,23 +59,29 @@ def run_trained_agent(args):
 
     assert ckpt_dict["env_metadata"]["type"] == EnvType.GYMGRASP_TYPE
 
-    num_envs = ckpt_dict["env_metadata"]["env_kwargs"]["task"]["env"]["numEnvs"]
-    ckpt_dict["env_metadata"]["env_kwargs"]["headless"] = True
-    ckpt_dict["env_metadata"]["env_kwargs"]["task"]["control"]["teleoperated"] = False
+    env_args = ckpt_dict["env_metadata"]["env_kwargs"]
+    if args.n_envs:
+        env_args["task"]["env"]["numEnvs"] = args.n_envs
+    elif args.n_rollouts < env_args["task"]["env"]["numEnvs"]:
+        env_args["task"]["env"]["numEnvs"] = args.n_rollouts
+    num_envs = env_args["task"]["env"]["numEnvs"]
+    env_args["headless"] = True
+    env_args["task"]["control"]["teleoperated"] = False
 
     if args.record:
+        w, h = args.resolution.split('x')
         camera_0 = dict(type="rgb",
                         pos=[ -0.5, 0, 1.3 ],
                         lookat=[ 0,  0, 0.8 ],
                         horizontal_fov=70,
-                        width=900,
-                        height=900,
+                        width=int(w),
+                        height=int(h),
                     )
         cameras = dict(save_recordings=True,
                        convert_to_pointcloud=False,
                        convert_to_voxelgrid=False,
                        camera0=camera_0)
-        ckpt_dict["env_metadata"]["env_kwargs"]["task"]["cameras"] = cameras
+        env_args["task"]["cameras"] = cameras
 
     # read rollout settings
     assert args.n_rollouts % num_envs == 0
@@ -167,6 +177,20 @@ if __name__ == "__main__":
         action='store_true',
         help="record rollouts in simulation",
     )
+
+    parser.add_argument(
+        "--n_envs",
+        type=int,
+        default=None,
+        help="(optional) override number of parallel envs of rollout from the one in the checkpoint",
+    )
+
+    parser.add_argument(
+        "--resolution",
+        type=str,
+        default="128x128",
+        help="(optional) desired resolution in format <width>x<height>, default is 128x128",
+    )    
 
     args = parser.parse_args()
     run_trained_agent(args)

@@ -92,7 +92,7 @@ def train(config, device):
         env_meta["env_kwargs"]["task"]["env"]["numEnvs"] = config.experiment.rollout.n
         if config.experiment.gymgrasp_recording:
             camera_0 = dict(type="rgb",
-                            pos=[ 0.0, -0.5, 1.3 ],
+                            pos=[ -0.5, 0, 1.3 ],
                             lookat=[ 0,  0, 0.8 ],
                             horizontal_fov=70,
                             width=128,
@@ -315,7 +315,7 @@ def train(config, device):
                 new_loc = os.path.join(video_dir, epoch_ckpt_name)
                 os.mkdir(new_loc)
                 os.rename(old_loc, new_loc)
-                os.mkdir(old_loc)             
+                os.mkdir(old_loc)
 
         # Only keep saved videos if the ckpt should be saved (but not because of validation score)
         should_save_video = (should_save_ckpt and (ckpt_reason != "valid")) or config.experiment.keep_all_videos
