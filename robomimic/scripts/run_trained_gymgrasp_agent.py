@@ -19,6 +19,8 @@ Args:
     n_envs (int): if provided, overwrite number of parallel environments
 
     resolution (str): (optional) desired resolution in format <width>x<height>, default is 128x128
+    
+    device (str): (optional) torch device, default cuda:0
 
 Example usage:
 
@@ -52,7 +54,11 @@ def run_trained_agent(args):
     ckpt_path = args.agent
 
     # device
-    device = TorchUtils.get_torch_device(try_to_use_cuda=True)
+    if args.device == "cpu":
+        device = TorchUtils.get_torch_device(try_to_use_cuda=False)
+    else:  # cuda:i
+        device_id = args.device.split(":")[1]
+        device = TorchUtils.get_torch_device(try_to_use_cuda=True, id=device_id)
 
     # restore policy
     policy, ckpt_dict = FileUtils.policy_from_checkpoint(ckpt_path=ckpt_path, device=device, verbose=True)
@@ -190,6 +196,13 @@ if __name__ == "__main__":
         type=str,
         default="128x128",
         help="(optional) desired resolution in format <width>x<height>, default is 128x128",
+    )    
+    
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda:0",
+        help="(optional) torch device, default cuda:0",
     )    
 
     args = parser.parse_args()

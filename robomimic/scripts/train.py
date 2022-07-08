@@ -90,6 +90,7 @@ def train(config, device):
         env_meta["env_kwargs"]["task"]["control"]["teleoperated"] = False
         env_meta["env_kwargs"]["task"]["reset"]["maxEpisodeLength"] = config.experiment.rollout.horizon
         env_meta["env_kwargs"]["task"]["env"]["numEnvs"] = config.experiment.rollout.n
+        #env_meta["env_kwargs"]["graphics_device_id"] = config.train.cuda_id
         if config.experiment.gymgrasp_recording:
             camera_0 = dict(type="rgb",
                             pos=[ -0.5, 0, 1.3 ],
@@ -363,7 +364,7 @@ def main(args):
         config.experiment.name = args.name
 
     # get torch device
-    device = TorchUtils.get_torch_device(try_to_use_cuda=config.train.cuda)
+    device = TorchUtils.get_torch_device(try_to_use_cuda=config.train.cuda, id=config.train.cuda_id)
 
     # maybe modify config for debugging purposes
     if args.debug:
