@@ -26,7 +26,7 @@ Example usage:
     
     python run_trained_gymgrasp_agent.py --agent /path/to/model.pth \
         --n_rollouts 50 --n_envs 50 --horizon 400 --seed 0 \
-        --record --resolution 
+        --record --resolution 900x900
 """
 
 import isaacgym
