@@ -14,6 +14,34 @@
 [**[Homepage]**](https://arise-initiative.github.io/robomimic-web/) &ensp; [**[Documentation]**](https://arise-initiative.github.io/robomimic-web/docs/introduction/overview.html) &ensp; [**[Study Paper]**](https://arxiv.org/abs/2108.03298) &ensp; [**[Study Website]**](https://arise-initiative.github.io/robomimic-web/study/) &ensp; [**[ARISE Initiative]**](https://github.com/ARISE-Initiative)
 
 -------
+
+## Usage for `gym-grasp`
+
+This fork extends the robomimic framework to handle [`gym-grasp`](https://git.ais.uni-bonn.de/mosbach/gym-grasp) environments.
+It requires that you have a working installation of `gym-grasp` and corresponding demonstrations (e.g. the ones provided in the `gym-grasp` repo itself).
+
+To prepare a demonstration file for learning, split the demos into training and validation data:
+
+```python
+python robomimic/robomimic/scripts/split_train_val.py --dataset <file> --ratio 0.1
+```
+
+You will also likely need configuration files, check [robomimmic's config tutorial](https://robomimic.github.io/docs/tutorials/configs.html) for more information.
+We have added some configuration keys, most importantly `experiment.gymgrasp_recording` to enable recordings in simulation. Please note that you can not use `experiment.render` and `experiment.render_video` when learning in `gym-grasp` environments.
+Rollouts are recorded in parallel environments (number of environments is equal to number of requested rollouts).
+Then, you can train using 
+
+```python
+python train.py --config <file>
+```
+
+To run trained models, use [`run_trained_gymgrasp_agent.py`](robomimic/scripts/run_trained_gymgrasp_agent.py).
+This will provide you with information about success rate and return achieved in rollouts.
+Please ignore the `Num Successes` output, it is not correct when using parallel environments.
+You can also choose to record the rollouts, see the available command line parameters for more information.
+
+-------
+
 ## Latest Updates
 - [12/16/2021] **v0.2.0**: Modular observation modalities and encoders :wrench:, support for [MOMART](https://sites.google.com/view/il-for-mm/home) datasets :open_file_folder:
 - [08/09/2021] **v0.1.0**: Initial code and paper release
