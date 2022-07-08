@@ -22,6 +22,7 @@
         "additional_envs": null,
         "render": false,
         "render_video": true,
+        "gymgrasp_recording": false,
         "keep_all_videos": false,
         "video_skip": 5,
         "rollout": {
@@ -49,6 +50,7 @@
         ],
         "goal_mode": null,
         "cuda": true,
+        "cuda_id": 0,
         "batch_size": 1024,
         "num_epochs": 2000,
         "seed": 1
