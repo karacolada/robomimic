@@ -90,7 +90,7 @@ def train(config, device):
         env_meta["env_kwargs"]["task"]["control"]["teleoperated"] = False
         env_meta["env_kwargs"]["task"]["reset"]["maxEpisodeLength"] = config.experiment.rollout.horizon
         env_meta["env_kwargs"]["task"]["env"]["numEnvs"] = config.experiment.rollout.n
-        #env_meta["env_kwargs"]["graphics_device_id"] = config.train.cuda_id
+        env_meta["env_kwargs"]["graphics_device_id"] = config.train.cuda_id
         if config.experiment.gymgrasp_recording:
             camera_0 = dict(type="rgb",
                             pos=[ -0.5, 0, 1.3 ],
