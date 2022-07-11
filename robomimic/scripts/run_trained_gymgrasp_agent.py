@@ -56,6 +56,7 @@ def run_trained_agent(args):
     # device
     if args.device == "cpu":
         device = TorchUtils.get_torch_device(try_to_use_cuda=False)
+        device_id = -1
     else:  # cuda:i
         device_id = args.device.split(":")[1]
         device = TorchUtils.get_torch_device(try_to_use_cuda=True, id=device_id)
@@ -71,6 +72,7 @@ def run_trained_agent(args):
     elif args.n_rollouts < env_args["task"]["env"]["numEnvs"]:
         env_args["task"]["env"]["numEnvs"] = args.n_rollouts
     num_envs = env_args["task"]["env"]["numEnvs"]
+    env_args["graphics_device_id"] = device_id
     env_args["headless"] = True
     env_args["task"]["control"]["teleoperated"] = False
 
