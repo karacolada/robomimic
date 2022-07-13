@@ -747,3 +747,17 @@ class CQL_RNN(CQL):
                     source=critic,
                     target=critic_target,
                 )
+    
+    def process_batch_for_training(self, batch):
+        raise NotImplementedError
+
+    def get_action(self, obs_dict, goal_dict=None):
+        raise NotImplementedError
+
+    def reset(self):
+        """
+        Reset algo state to prepare for environment rollouts.
+        """
+        raise NotImplementedError
+        self._rnn_hidden_state = None
+        self._rnn_counter = 0
