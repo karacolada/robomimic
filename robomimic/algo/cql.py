@@ -32,6 +32,8 @@ def algo_config_to_class(algo_config):
         algo_class: subclass of Algo
         algo_kwargs (dict): dictionary of additional kwargs to pass to algorithm
     """
+    if algo_config.rnn.enabled:
+        return CQL_RNN, {}
     return CQL, {}
 
 
@@ -664,3 +666,84 @@ class CQL(PolicyAlgo, ValueAlgo):
         assert not self.nets.training
 
         return self.nets["critic"][0](obs_dict, actions, goal_dict)
+
+class CQL_RNN(CQL):
+    """
+    Added possibility to use RNNs in actor and/or critic.
+    """
+    def _create_networks(self):
+        """
+        Creates networks and places them into @self.nets.
+
+        Networks for this algo: critic (potentially ensemble), policy
+        """
+
+        # Create nets
+        self.nets = nn.ModuleDict()
+
+        # Assemble args to pass to actor
+        actor_args = dict(self.algo_config.actor.net.common)
+
+        # Add network-specific args and define network class
+        if self.algo_config.actor.net.type == "gaussian":
+            actor_cls = PolicyNets.GaussianActorNetwork
+            actor_args.update(dict(self.algo_config.actor.net.gaussian))
+        elif self.algo_config.actor.net.type == "rnn":
+            actor_cls = PolicyNets.RNNActorNetwork
+            actor_args.update(dict(self.algo_config.actor.net.rnn))
+        else:
+            # Unsupported actor type!
+            raise ValueError(f"Unsupported actor requested. "
+                             f"Requested: {self.algo_config.actor.net.type}, "
+                             f"valid options are: {['gaussian']}")
+
+        # Policy
+        self.nets["actor"] = actor_cls(
+            obs_shapes=self.obs_shapes,
+            goal_shapes=self.goal_shapes,
+            ac_dim=self.ac_dim,
+            mlp_layer_dims=self.algo_config.actor.layer_dims,
+            encoder_kwargs=ObsUtils.obs_encoder_kwargs_from_config(self.obs_config.encoder),
+            **actor_args,
+        )
+
+        # Critics
+        critic_args =  {}
+        if self.algo_config.critic.rnn.enabled:
+            critic_cls = ValueNets.RNNActionValueNetwork
+            critic_args.update(dict(self.algo_config.critic.rnn))
+        else:
+            critic_cls = ValueNets.ActionValueNetwork
+        self.nets["critic"] = nn.ModuleList()
+        self.nets["critic_target"] = nn.ModuleList()
+        for _ in range(self.algo_config.critic.ensemble.n):
+            for net_list in (self.nets["critic"], self.nets["critic_target"]):
+                critic = critic_cls(
+                    obs_shapes=self.obs_shapes,
+                    ac_dim=self.ac_dim,
+                    mlp_layer_dims=self.algo_config.critic.layer_dims,
+                    value_bounds=self.algo_config.critic.value_bounds,
+                    goal_shapes=self.goal_shapes,
+                    encoder_kwargs=ObsUtils.obs_encoder_kwargs_from_config(self.obs_config.encoder),
+                    **critic_args,
+                )
+                net_list.append(critic)
+
+        # Entropy (if automatically tuning)
+        if self.automatic_entropy_tuning:
+            self.nets["log_entropy_weight"] = BaseNets.Parameter(torch.zeros(1))
+
+        # CQL (if automatically tuning)
+        if self.automatic_cql_tuning:
+            self.nets["log_cql_weight"] = BaseNets.Parameter(torch.zeros(1))
+
+        # Send networks to appropriate device
+        self.nets = self.nets.float().to(self.device)
+
+        # sync target networks at beginning of training
+        with torch.no_grad():
+            for critic, critic_target in zip(self.nets["critic"], self.nets["critic_target"]):
+                TorchUtils.hard_update(
+                    source=critic,
+                    target=critic_target,
+                )

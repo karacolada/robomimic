@@ -47,7 +47,7 @@ class CQLConfig(BaseConfig):
         self.algo.actor.max_gradient_norm = None                            # L2 gradient clipping for actor
 
         # Actor network settings
-        self.algo.actor.net.type = "gaussian"                               # Options are currently only "gaussian" (no support for GMM yet)
+        self.algo.actor.net.type = "gaussian"                               # Options are currently only "gaussian" and "rnn" (no support for GMM yet)
 
         # Actor network settings - shared
         self.algo.actor.net.common.std_activation = "exp"                   # Activation to use for std output from policy net
@@ -58,6 +58,16 @@ class CQLConfig(BaseConfig):
         self.algo.actor.net.gaussian.init_last_fc_weight = 0.001            # If set, will override the initialization of the final fc layer to be uniformly sampled limited by this value
         self.algo.actor.net.gaussian.init_std = 0.3                         # Relative scaling factor for std from policy net
         self.algo.actor.net.gaussian.fixed_std = False                      # Whether to learn std dev or not
+
+        # Actor network settings - RNN
+        # RNN policy settings
+        self.algo.actor.net.rnn.horizon = 10                                # unroll length for RNN - should usually match train.seq_length
+        self.algo.actor.net.rnn.hidden_dim = 400                            # hidden dimension size    
+        self.algo.actor.net.rnn.rnn_type = "LSTM"                           # rnn type - one of "LSTM" or "GRU"
+        self.algo.actor.net.rnn.num_layers = 2                              # number of RNN layers that are stacked
+        self.algo.actor.net.rnn.open_loop = False                           # if True, action predictions are only based on a single observation (not sequence)
+        self.algo.actor.net.rnn.kwargs.bidirectional = False                # rnn kwargs
+        self.algo.actor.net.rnn.kwargs.do_not_lock_keys()
 
         self.algo.actor.layer_dims = (300, 400)                             # actor MLP layer dimensions
 
@@ -80,3 +90,13 @@ class CQLConfig(BaseConfig):
         self.algo.critic.ensemble.n = 2                                     # number of Q networks in the ensemble
 
         self.algo.critic.layer_dims = (300, 400)                            # critic MLP layer dimensions
+
+        # RNN policy settings
+        self.algo.critic.rnn.enabled = False                                # whether to train RNN policy
+        self.algo.critic.rnn.horizon = 10                                   # unroll length for RNN - should usually match train.seq_length
+        self.algo.critic.rnn.hidden_dim = 400                               # hidden dimension size    
+        self.algo.critic.rnn.rnn_type = "LSTM"                              # rnn type - one of "LSTM" or "GRU"
+        self.algo.critic.rnn.num_layers = 2                                 # number of RNN layers that are stacked
+        self.algo.critic.rnn.open_loop = False                              # if True, action predictions are only based on a single observation (not sequence)
+        self.algo.critic.rnn.kwargs.bidirectional = False                   # rnn kwargs
+        self.algo.critic.rnn.kwargs.do_not_lock_keys()

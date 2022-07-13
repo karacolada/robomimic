@@ -96,6 +96,16 @@
                     "init_last_fc_weight": 0.001,
                     "init_std": 0.3,
                     "fixed_std": false
+                },
+                "rnn": {
+                    "horizon": 10,
+                    "hidden_dim": 400,
+                    "rnn_type": "LSTM",
+                    "num_layers": 2,
+                    "open_loop": false,
+                    "kwargs": {
+                        "bidirectional": false
+                    }
                 }
             },
             "layer_dims": [
@@ -119,7 +129,18 @@
             "layer_dims": [
                 300,
                 400
-            ]
+            ],
+            "rnn": {
+                "enabled": false,
+                "horizon": 10,
+                "hidden_dim": 400,
+                "rnn_type": "LSTM",
+                "num_layers": 2,
+                "open_loop": false,
+                "kwargs": {
+                    "bidirectional": false
+                }
+            }
         }
     },
     "observation": {
