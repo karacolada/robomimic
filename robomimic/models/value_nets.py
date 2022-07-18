@@ -430,21 +430,56 @@ class RNNActionValueNetwork(RNN_MIMO_MLP):
         """
         return [1]
 
-    def forward(self, obs_dict, acts, goal_dict=None):
+    def forward(self, obs_dict, acts, goal_dict=None, rnn_init_state=None, return_state=False):
         """
         Forward through action value network, and then optionally use tanh scaling.
         """
         inputs = dict(obs_dict)
         inputs["action"] = acts
+
         if self._is_goal_conditioned:
             assert goal_dict is not None
             # repeat the goal observation in time to match dimension with obs_dict
             mod = list(obs_dict.keys())[0]
             goal_dict = TensorUtils.unsqueeze_expand_at(goal_dict, size=obs_dict[mod].shape[1], dim=1)
-        values = super(RNNActionValueNetwork, self).forward(obs=inputs, goal=goal_dict)["value"]
+        
+        #values = super(RNNActionValueNetwork, self).forward(obs=inputs, goal=goal_dict)["value"]
+        outputs = super(RNNActionValueNetwork, self).forward(obs=inputs, goal=goal_dict, rnn_init_state=rnn_init_state, return_state=return_state)
+        
+        if return_state:
+            values, state = outputs
+        else:
+            values = outputs
+            state = None
+        
         if self.value_bounds is not None:
             values = self._value_offset + self._value_scale * torch.tanh(values)
-        return values
+
+        if return_state:
+            return values, state
+        else:
+            return values
+
+    def forward_step(self, obs_dict, acts, goal_dict=None, rnn_state=None):
+        """
+        Unroll RNN over single timestep to get actions.
+
+        Args:
+            obs_dict (dict): batch of observations. Should not contain
+                time dimension.
+            acts: batch of actions
+            goal_dict (dict): if not None, batch of goal observations
+            rnn_state: rnn hidden state, initialize to zero state if set to None
+
+        Returns:
+            actions (torch.Tensor): batch of actions - does not contain time dimension
+            state: updated rnn state
+        """
+        obs_dict = TensorUtils.to_sequence(obs_dict)
+        acts = TensorUtils.to_sequence(acts)
+        value, state = self.forward(
+            obs_dict, acts, goal_dict, rnn_init_state=rnn_state, return_state=True)
+        return value[:, 0], state        
 
     def _to_string(self):
         return "action_dim={}\nvalue_bounds={}".format(self.ac_dim, self.value_bounds)

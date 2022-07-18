@@ -685,17 +685,14 @@ class CQL_RNN(CQL):
         actor_args = dict(self.algo_config.actor.net.common)
 
         # Add network-specific args and define network class
-        if self.algo_config.actor.net.type == "gaussian":
-            actor_cls = PolicyNets.GaussianActorNetwork
-            actor_args.update(dict(self.algo_config.actor.net.gaussian))
-        elif self.algo_config.actor.net.type == "rnn":
+        if self.algo_config.actor.net.type == "rnn":
             actor_cls = PolicyNets.RNNActorNetwork
             actor_args.update(dict(self.algo_config.actor.net.rnn))
         else:
             # Unsupported actor type!
             raise ValueError(f"Unsupported actor requested. "
                              f"Requested: {self.algo_config.actor.net.type}, "
-                             f"valid options are: {['gaussian']}")
+                             f"valid options are: {['rnn']}")
 
         # Policy
         self.nets["actor"] = actor_cls(
@@ -713,7 +710,10 @@ class CQL_RNN(CQL):
             critic_cls = ValueNets.RNNActionValueNetwork
             critic_args.update(dict(self.algo_config.critic.rnn))
         else:
-            critic_cls = ValueNets.ActionValueNetwork
+            # Unsupported actor type!
+            raise ValueError(f"Unsupported critic requested. "
+                             f"Requested: RNN {self.algo_config.critic.rnn.enabled}, "
+                             f"valid options are: {[True]}")
         self.nets["critic"] = nn.ModuleList()
         self.nets["critic_target"] = nn.ModuleList()
         for _ in range(self.algo_config.critic.ensemble.n):
@@ -747,17 +747,110 @@ class CQL_RNN(CQL):
                     source=critic,
                     target=critic_target,
                 )
+        
+        # RNNs
+        self._rnn_hidden_state_critic_0 = None
+        self._rnn_hidden_state_actor = None
+        self._rnn_horizon = self.algo_config.rnn.horizon
+        self._rnn_counter_critics = 0
+        self._rnn_counter_actor = 0
+        self._rnn_is_open_loop = self.algo_config.rnn.get("open_loop", False)
     
     def process_batch_for_training(self, batch):
-        raise NotImplementedError
+        """
+        Processes input batch from a data loader to filter out relevant info and prepare the batch for training.
+
+        Args:
+            batch (dict): dictionary with torch.Tensors sampled
+                from a data loader
+
+        Returns:
+            input_batch (dict): processed and filtered batch that
+                will be used for training
+        """
+        input_batch = dict()
+
+        # Make sure the trajectory of actions received is greater than our step horizon
+        #assert batch["actions"].shape[1] >= self.n_step
+        # unsure how to combine the n-step thing, so
+        assert self.n_step == 1, "higher n_step than 1 is not implemented for CQL-RNN"
+
+        # keep temporal batches for all
+        input_batch["obs"] = batch["obs"]
+        #input_batch["next_obs"] = {k: batch["next_obs"][k][:, self.n_step - 1, :] for k in batch["next_obs"]}
+        input_batch["next_obs"] = batch["next_obs"]
+        input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
+        input_batch["actions"] = batch["actions"]
+
+        # note: ensure scalar signals (rewards, done) retain last dimension of 1 to be compatible with model outputs
+
+        # single timestep reward is discounted sum of intermediate rewards in sequence
+        #reward_seq = batch["rewards"][:, :self.n_step]
+        #discounts = torch.pow(self.algo_config.discount, torch.arange(self.n_step).float()).unsqueeze(0)
+        #input_batch["rewards"] = (reward_seq * discounts).sum(dim=1).unsqueeze(1)
+        input_batch["rewards"] = batch["rewards"]
+
+        # consider this n-step seqeunce done if any intermediate dones are present
+        #done_seq = batch["dones"][:, :self.n_step]
+        #input_batch["dones"] = (done_seq.sum(dim=1) > 0).float().unsqueeze(1)
+        input_batch["dones"] = batch["dones"]
+
+        assert not self._rnn_is_open_loop, "open-loop RNN is not implemented for CQL-RNN"
+
+        return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
 
     def get_action(self, obs_dict, goal_dict=None):
-        raise NotImplementedError
+        """
+        Get policy action outputs.
+
+        Args:
+            obs_dict (dict): current observation
+            goal_dict (dict): (optional) goal
+
+        Returns:
+            action (torch.Tensor): action tensor
+        """
+        assert not self.nets.training
+
+        assert not self._rnn_is_open_loop, "open-loop RNN is not implemented for CQL-RNN"
+        
+        if self._rnn_hidden_state_actor is None or self._rnn_counter_actor % self._rnn_horizon == 0:
+            batch_size = list(obs_dict.values())[0].shape[0]
+            self._rnn_hidden_state_actor = self.nets["actor"].get_rnn_init_state(batch_size=batch_size, device=self.device)
+
+        self._rnn_counter_actor += 1
+        action, self._rnn_hidden_state_actor = self.nets["actor"].forward_step(obs_dict=obs_dict, goal_dict=goal_dict, rnn_state=self._rnn_hidden_state_actor)
+        return action
+
+    def get_state_action_value(self, obs_dict, actions, goal_dict=None):
+        """
+        Get state-action value outputs.
+
+        Args:
+            obs_dict (dict): current observation
+            actions (torch.Tensor): action
+            goal_dict (dict): (optional) goal
+
+        Returns:
+            value (torch.Tensor): value tensor
+        """
+        assert not self.nets.training
+
+        assert not self._rnn_is_open_loop, "open-loop RNN is not implemented for CQL-RNN"
+        
+        if self._rnn_hidden_state_critic_0 is None or self._rnn_counter_critics % self._rnn_horizon == 0:
+            batch_size = list(obs_dict.values())[0].shape[0]
+            self._rnn_hidden_state_critic_0 = self.nets["critics"][0].get_rnn_init_state(batch_size=batch_size, device=self.device)
+
+        self._rnn_counter_critics += 1
+
+        return self.nets["critic"][0].forward_step(obs_dict, actions, goal_dict, rnn_state=self._rnn_hidden_state_critic_0)
 
     def reset(self):
         """
         Reset algo state to prepare for environment rollouts.
         """
-        raise NotImplementedError
-        self._rnn_hidden_state = None
-        self._rnn_counter = 0
+        self._rnn_hidden_state_critic_0 = None
+        self._rnn_hidden_state_actor = None
+        self._rnn_counter_critics = 0
+        self._rnn_counter_actor = 0
