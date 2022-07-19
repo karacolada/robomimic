@@ -7,6 +7,7 @@ are assumed to lie in [-1, 1], and most networks will have a final
 tanh activation to help ensure this range.
 """
 import textwrap
+from turtle import forward
 import numpy as np
 from collections import OrderedDict
 
@@ -723,6 +724,304 @@ class RNNActorNetwork(RNN_MIMO_MLP):
         """Info to pretty print."""
         return "action_dim={}".format(self.ac_dim)
 
+class RNNGaussianActorNetwork(RNNActorNetwork):
+    """
+    An RNN Gaussian policy network that predicts sequences of action distributions from observation sequences.
+    """
+    def __init__(
+        self,
+        obs_shapes,
+        ac_dim,
+        mlp_layer_dims,        
+        rnn_hidden_dim,
+        rnn_num_layers,
+        rnn_type="LSTM",  # [LSTM, GRU]
+        rnn_kwargs=None,
+        fixed_std=False,
+        std_activation="softplus",
+        init_last_fc_weight=None,
+        init_std=0.3,
+        mean_limits=(-9.0, 9.0),
+        std_limits=(0.007, 7.5),
+        low_noise_eval=True,
+        use_tanh=False,        
+        goal_shapes=None,
+        encoder_kwargs=None,
+    ):
+        """
+        Args:
+            obs_shapes (OrderedDict): a dictionary that maps modality to
+                expected shapes for observations.
+
+            ac_dim (int): dimension of action space.
+
+            mlp_layer_dims ([int]): sequence of integers for the MLP hidden layers sizes.
+
+            rnn_hidden_dim (int): RNN hidden dimension
+
+            rnn_num_layers (int): number of RNN layers
+
+            rnn_type (str): [LSTM, GRU]
+
+            rnn_kwargs (dict): kwargs for the torch.nn.LSTM / GRU
+
+            fixed_std (bool): if True, std is not learned, but kept constant at @init_std
+
+            std_activation (None or str): type of activation to use for std deviation. Options are:
+
+                None: no activation applied (not recommended unless using fixed std)
+
+                `'softplus'`: Only applicable if not using fixed std. Softplus activation applied, after which the
+                    output is scaled by init_std / softplus(0)
+
+                `'exp'`: Only applicable if not using fixed std. Exp applied; this corresponds to network output
+                    as being interpreted as log_std instead of std
+
+                NOTE: In all cases, the final result is clipped to be within @std_limits
+
+            init_last_fc_weight (None or float): if specified, will intialize the final layer network weights to be
+                uniformly sampled from [-init_weight, init_weight]
+
+            init_std (None or float): approximate initial scaling for standard deviation outputs
+                from network. If None
+
+            mean_limits (2-array): (min, max) to clamp final mean output by
+
+            std_limits (2-array): (min, max) to clamp final std output by
+
+            low_noise_eval (float): if True, model will output means of Gaussian distribution
+                at eval time.
+
+            use_tanh (bool): if True, use a tanh-Gaussian distribution            
+
+            goal_shapes (OrderedDict): a dictionary that maps modality to
+                expected shapes for goal observations.
+
+            encoder_kwargs (dict or None): If None, results in default encoder_kwargs being applied. Otherwise, should
+                be nested dictionary containing relevant per-modality information for encoder networks.
+                Should be of form:
+
+                obs_modality1: dict
+                    feature_dimension: int
+                    core_class: str
+                    core_kwargs: dict
+                        ...
+                        ...
+                    obs_randomizer_class: str
+                    obs_randomizer_kwargs: dict
+                        ...
+                        ...
+                obs_modality2: dict
+                    ...
+        """    
+
+        # parameters specific to Gaussian actor
+        self.fixed_std = fixed_std
+        self.init_std = init_std
+        self.mean_limits = np.array(mean_limits)
+        self.std_limits = np.array(std_limits)
+
+        # Define activations to use
+        def softplus_scaled(x):
+            out = F.softplus(x)
+            out = out * (self.init_std / F.softplus(torch.zeros(1).to(x.device)))
+            return out
+
+        self.activations = {
+            None: lambda x: x,
+            "softplus": softplus_scaled,
+            "exp": torch.exp,
+        }
+        assert std_activation in self.activations, \
+            "std_activation must be one of: {}; instead got: {}".format(self.activations.keys(), std_activation)
+        self.std_activation = std_activation if not self.fixed_std else None
+
+        self.low_noise_eval = low_noise_eval
+        self.use_tanh = use_tanh
+
+        super(RNNGaussianActorNetwork, self).__init__(
+            obs_shapes=obs_shapes,
+            ac_dim=ac_dim,
+            mlp_layer_dims=mlp_layer_dims,
+            rnn_hidden_dim=rnn_hidden_dim,
+            rnn_num_layers=rnn_num_layers,
+            rnn_type=rnn_type,
+            rnn_kwargs=rnn_kwargs,
+            goal_shapes=goal_shapes,
+            encoder_kwargs=encoder_kwargs,
+        )
+
+        # If initialization weight was specified, make sure all final layer network weights are specified correctly
+        if init_last_fc_weight is not None:
+            with torch.no_grad():
+                for name, layer in self.nets["decoder"].nets.items():
+                    torch.nn.init.uniform_(layer.weight, -init_last_fc_weight, init_last_fc_weight)
+                    torch.nn.init.uniform_(layer.bias, -init_last_fc_weight, init_last_fc_weight)
+    
+    def _get_output_shapes(self):
+        """
+        Tells @MIMO_MLP superclass about the output dictionary that should be generated
+        at the last layer. Network outputs parameters of GMM distribution.
+        """
+        return OrderedDict(
+            mean=(self.ac_dim,), 
+            scale=(self.ac_dim,),
+        )
+
+    def forward_train(self, obs_dict, goal_dict=None, rnn_init_state=None, return_state=False):
+        """
+        Return full GMM distribution, which is useful for computing
+        quantities necessary at train-time, like log-likelihood, KL 
+        divergence, etc.
+
+        Args:
+            obs_dict (dict): batch of observations
+            goal_dict (dict): if not None, batch of goal observations
+            rnn_init_state: rnn hidden state, initialize to zero state if set to None
+            return_state (bool): whether to return hidden state
+
+        Returns:
+            dists (Distribution): sequence of GMM distributions over the timesteps
+            rnn_state: return rnn state at the end if return_state is set to True
+        """
+
+        # RNN part
+        if self._is_goal_conditioned:
+            assert goal_dict is not None
+            # repeat the goal observation in time to match dimension with obs_dict
+            mod = list(obs_dict.keys())[0]
+            goal_dict = TensorUtils.unsqueeze_expand_at(goal_dict, size=obs_dict[mod].shape[1], dim=1)
+
+        outputs = RNN_MIMO_MLP.forward(
+            self, obs=obs_dict, goal=goal_dict, rnn_init_state=rnn_init_state, return_state=return_state)
+
+        if return_state:
+            outputs, state = outputs
+        else:
+            state = None
+
+        mean = outputs["mean"]
+        # Use either constant std or learned std depending on setting
+        scale = outputs["scale"] if not self.fixed_std else torch.ones_like(mean) * self.init_std
+
+        # Clamp the mean
+        mean = torch.clamp(mean, min=self.mean_limits[0], max=self.mean_limits[1])
+
+        # apply tanh squashing to mean if not using tanh-Gaussian to ensure mean is in [-1, 1]
+        if not self.use_tanh:
+            mean = torch.tanh(mean)
+
+        # Calculate scale
+        if self.low_noise_eval and (not self.training):
+            # override std value so that you always approximately sample the mean
+            scale = torch.ones_like(mean) * 1e-4
+        else:
+            # Post-process the scale accordingly
+            scale = self.activations[self.std_activation](scale)
+            # Clamp the scale
+            scale = torch.clamp(scale, min=self.std_limits[0], max=self.std_limits[1])
+
+
+        # the Independent call will make it so that `batch_shape` for dist will be equal to batch size
+        # while `event_shape` will be equal to action dimension - ensuring that log-probability 
+        # computations are summed across the action dimension
+        dist = D.Normal(loc=mean, scale=scale)
+        dist = D.Independent(dist, 1)
+
+        if self.use_tanh:
+            # Wrap distribution with Tanh
+            dist = TanhWrappedDistribution(base_dist=dist, scale=1.)
+
+        if return_state:
+            return dist, state
+        else:
+            return dist
+    
+    def forward(self, obs_dict, goal_dict=None, rnn_init_state=None, return_state=False):
+        """
+        Samples actions from the policy distribution.
+
+        Args:
+            obs_dict (dict): batch of observations
+            goal_dict (dict): if not None, batch of goal observations
+
+        Returns:
+            action (torch.Tensor): batch of actions from policy distribution
+        """
+        out = self.forward_train(obs_dict=obs_dict, goal_dict=goal_dict, rnn_init_state=rnn_init_state, return_state=return_state)
+
+        if self.low_noise_eval and (not self.training):
+            if self.use_tanh:
+                # # scaling factor lets us output actions like [-1. 1.] and is consistent with the distribution transform
+                # return (1. + 1e-6) * torch.tanh(dist.base_dist.mean)
+                if return_state:
+                    dist, state = out
+                    return torch.tanh(dist.mean), state
+                return torch.tanh(out.mean)
+            if return_state:
+                dist, state = out
+                return dist.mean, state
+            return out.mean
+        if return_state:
+            dist, state = out
+            return dist.sample(), state
+        return out.sample()
+
+    def forward_train_step(self, obs_dict, goal_dict=None, rnn_state=None):
+        """
+        Unroll RNN over single timestep to get Gaussian distribution, which 
+        is useful for computing quantities necessary at train-time, like 
+        log-likelihood, KL divergence, etc.
+
+        Args:
+            obs_dict (dict): batch of observations. Should not contain
+                time dimension.
+            goal_dict (dict): if not None, batch of goal observations
+            rnn_state: rnn hidden state, initialize to zero state if set to None
+
+        Returns:
+            dist (Distribution): Gaussian distribution
+            state: updated rnn state
+        """
+        obs_dict = TensorUtils.to_sequence(obs_dict)
+        dist, state = self.forward_train(
+            obs_dict, goal_dict, rnn_init_state=rnn_state, return_state=True)
+
+        # to squeeze time dimension, make another action distribution
+        assert dist.base_dist.loc.shape[1] == 1
+        dist_squeezed = D.Normal(
+            loc=dist.base_dist.loc.squeeze(1),
+            scale=dist.base_dist.scale.squeeze(1),
+        )
+        dist = D.Independent(dist_squeezed, 1)
+
+        return dist, state
+
+    def forward_step(self, obs_dict, goal_dict=None, rnn_state=None):
+        """
+        Unroll RNN over single timestep to get sampled actions.
+
+        Args:
+            obs_dict (dict): batch of observations. Should not contain
+                time dimension.
+            goal_dict (dict): if not None, batch of goal observations
+            rnn_state: rnn hidden state, initialize to zero state if set to None
+
+        Returns:
+            acts (torch.Tensor): batch of actions - does not contain time dimension
+            state: updated rnn state
+        """
+        obs_dict = TensorUtils.to_sequence(obs_dict)
+        acts, state = self.forward(
+            obs_dict, goal_dict, rnn_init_state=rnn_state, return_state=True)
+        assert acts.shape[1] == 1
+        return acts[:, 0], state
+
+    def _to_string(self):
+        """Info to pretty print."""
+        msg = "action_dim={}\nfixed_std={}\nstd_activation={}\ninit_std={}\nmean_limits={}\nstd_limits={}\nlow_noise_eval={}".format(
+            self.ac_dim, self.fixed_std, self.std_activation, self.init_std, self.mean_limits, self.std_limits, self.low_noise_eval)
+        return msg
 
 class RNNGMMActorNetwork(RNNActorNetwork):
     """

@@ -61,6 +61,7 @@ class CQLConfig(BaseConfig):
 
         # Actor network settings - RNN
         # RNN policy settings
+        self.algo.actor.net.rnn.enabled = False                             # whether to train RNN policy
         self.algo.actor.net.rnn.horizon = 10                                # unroll length for RNN - should usually match train.seq_length
         self.algo.actor.net.rnn.hidden_dim = 400                            # hidden dimension size    
         self.algo.actor.net.rnn.rnn_type = "LSTM"                           # rnn type - one of "LSTM" or "GRU"
@@ -92,7 +93,7 @@ class CQLConfig(BaseConfig):
         self.algo.critic.layer_dims = (300, 400)                            # critic MLP layer dimensions
 
         # RNN policy settings
-        self.algo.critic.rnn.enabled = False                                # whether to train RNN policy
+        self.algo.critic.rnn.enabled = False                                # whether to train RNN critic
         self.algo.critic.rnn.horizon = 10                                   # unroll length for RNN - should usually match train.seq_length
         self.algo.critic.rnn.hidden_dim = 400                               # hidden dimension size    
         self.algo.critic.rnn.rnn_type = "LSTM"                              # rnn type - one of "LSTM" or "GRU"

@@ -98,6 +98,7 @@
                     "fixed_std": false
                 },
                 "rnn": {
+                    "enabled": false,
                     "horizon": 10,
                     "hidden_dim": 400,
                     "rnn_type": "LSTM",

@@ -32,7 +32,7 @@ def algo_config_to_class(algo_config):
         algo_class: subclass of Algo
         algo_kwargs (dict): dictionary of additional kwargs to pass to algorithm
     """
-    if algo_config.rnn.enabled:
+    if algo_config.actor.net.rnn.enabled and algo_config.critic.rnn.enabled:
         return CQL_RNN, {}
     return CQL, {}
 
@@ -685,14 +685,15 @@ class CQL_RNN(CQL):
         actor_args = dict(self.algo_config.actor.net.common)
 
         # Add network-specific args and define network class
-        if self.algo_config.actor.net.type == "rnn":
-            actor_cls = PolicyNets.RNNActorNetwork
-            actor_args.update(dict(self.algo_config.actor.net.rnn))
+        if self.algo_config.actor.net.type == "gaussian":
+            actor_cls = PolicyNets.RNNGaussianActorNetwork
+            actor_args.update(dict(self.algo_config.actor.net.gaussian))
+            actor_args.update(BaseNets.rnn_args_from_config(self.algo_config.actor.net.rnn))
         else:
             # Unsupported actor type!
             raise ValueError(f"Unsupported actor requested. "
                              f"Requested: {self.algo_config.actor.net.type}, "
-                             f"valid options are: {['rnn']}")
+                             f"valid options are: {['gaussian']}")
 
         # Policy
         self.nets["actor"] = actor_cls(
@@ -708,9 +709,9 @@ class CQL_RNN(CQL):
         critic_args =  {}
         if self.algo_config.critic.rnn.enabled:
             critic_cls = ValueNets.RNNActionValueNetwork
-            critic_args.update(dict(self.algo_config.critic.rnn))
+            critic_args.update(BaseNets.rnn_args_from_config(self.algo_config.critic.rnn))
         else:
-            # Unsupported actor type!
+            # Unsupported critic type!
             raise ValueError(f"Unsupported critic requested. "
                              f"Requested: RNN {self.algo_config.critic.rnn.enabled}, "
                              f"valid options are: {[True]}")
@@ -749,12 +750,15 @@ class CQL_RNN(CQL):
                 )
         
         # RNNs
+        assert self.algo_config.actor.net.rnn.horizon == self.algo_config.critic.rnn.horizon, "horizon (context) of actor + critic RNNs must be the same"
+
+        self._rnn_horizon = self.algo_config.actor.net.rnn.horizon
         self._rnn_hidden_state_critic_0 = None
         self._rnn_hidden_state_actor = None
-        self._rnn_horizon = self.algo_config.rnn.horizon
         self._rnn_counter_critics = 0
         self._rnn_counter_actor = 0
-        self._rnn_is_open_loop = self.algo_config.rnn.get("open_loop", False)
+        self._rnn_is_open_loop_actor =  self.algo_config.actor.net.rnn.get("open_loop", False)
+        self._rnn_is_open_loop_critic =  self.algo_config.critic.rnn.get("open_loop", False)
     
     def process_batch_for_training(self, batch):
         """
@@ -795,7 +799,7 @@ class CQL_RNN(CQL):
         #input_batch["dones"] = (done_seq.sum(dim=1) > 0).float().unsqueeze(1)
         input_batch["dones"] = batch["dones"]
 
-        assert not self._rnn_is_open_loop, "open-loop RNN is not implemented for CQL-RNN"
+        assert not (self._rnn_is_open_loop_actor or self._rnn_is_open_loop_critic), "open-loop RNN is not implemented for CQL-RNN"
 
         return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
 
@@ -812,7 +816,7 @@ class CQL_RNN(CQL):
         """
         assert not self.nets.training
 
-        assert not self._rnn_is_open_loop, "open-loop RNN is not implemented for CQL-RNN"
+        assert not self._rnn_is_open_loop_actor, "open-loop RNN is not implemented for CQL-RNN"
         
         if self._rnn_hidden_state_actor is None or self._rnn_counter_actor % self._rnn_horizon == 0:
             batch_size = list(obs_dict.values())[0].shape[0]
@@ -836,7 +840,7 @@ class CQL_RNN(CQL):
         """
         assert not self.nets.training
 
-        assert not self._rnn_is_open_loop, "open-loop RNN is not implemented for CQL-RNN"
+        assert not self._rnn_is_open_loop_critic, "open-loop RNN is not implemented for CQL-RNN"
         
         if self._rnn_hidden_state_critic_0 is None or self._rnn_counter_critics % self._rnn_horizon == 0:
             batch_size = list(obs_dict.values())[0].shape[0]
