@@ -445,6 +445,8 @@ class CQL(PolicyAlgo, ValueAlgo):
         cql_weight = torch.clamp(self.log_cql_weight.exp(), min=0.0, max=1000000.0)
         info["critic/cql_weight"] = cql_weight.item()
         for i, (q_pred, q_cat) in enumerate(zip(q_preds, q_cats)):
+            print("\nq_pred.shape:", q_pred.shape)
+            print("\nq_cat.shape:", q_cat.shape)
             # Calculate td error loss
             td_loss = self.td_loss_fcn(q_pred, q_target)
             # Calculate cql loss
@@ -802,6 +804,192 @@ class CQL_RNN(CQL):
         assert not (self._rnn_is_open_loop_actor or self._rnn_is_open_loop_critic), "open-loop RNN is not implemented for CQL-RNN"
 
         return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
+
+    @staticmethod
+    def _get_qs_from_actions(obs_dict, actions, goal_dict, q_net):
+        """
+        Helper function for grabbing Q values given a single state and multiple (N) sampled actions.
+
+        Args:
+            obs_dict (dict): Observation dict from batch
+            actions (tensor): Torch tensor, with dim1 assumed to be the extra sampled dimension
+            goal_dict (dict): Goal dict from batch
+            q_net (nn.Module): Q net to pass the observations and actions
+
+        Returns:
+            tensor: (B, N, H) corresponding Q values
+        """
+        # Get the number of sampled actions
+        B, N, H, D = actions.shape
+
+        # Repeat obs and goals in the batch dimension
+        obs_dict_stacked = ObsUtils.repeat_and_stack_observation(obs_dict, N)
+        goal_dict_stacked = ObsUtils.repeat_and_stack_observation(goal_dict, N)
+
+        # Pass the obs and (flattened) actions through to get the Q values
+        qs = q_net(obs_dict=obs_dict_stacked, acts=actions.reshape(-1, H, D), goal_dict=goal_dict_stacked)
+
+        # Unflatten output
+        qs = qs.reshape(B, N, H)
+
+        return qs
+
+    def _train_critic_on_batch(self, batch, epoch, validate=False):
+        """
+        Training critic(s) on a single batch of data.
+
+        For a given batch of (s, a, r, s') tuples and n sampled actions (a_, a'_ corresponding to actions
+        sampled from the learned policy at states s and s', respectively; a~ corresponding to uniformly random
+        sampled actions):
+
+            Loss = CQL_loss + SAC_loss
+
+        Since we're in the continuous setting, we monte carlo sample for all ExpValues, which become Averages instead
+
+        SAC_loss is the standard single-step TD error, corresponding to the following:
+
+            SAC_loss = 0.5 * Average[ (Q(s,a) - (r + Average over a'_ [ Q(s', a'_) ]))^2 ]
+
+        The CQL_loss corresponds to a weighted secondary objective, corresponding to the (ExpValue of Q values over
+        sampled states and sampled actions from the LEARNED policy) minus the (ExpValue of Q values over
+        sampled states and sampled actions from the DATASET policy) plus a regularizer as a function
+        of the learned policy.
+
+        Intuitively, this tries to penalize Q-values arbitrarily resulting from the learned policy (which may produce
+        out-of-distribution (s,a) pairs) while preserving (known) Q-values taken from the dataset policy.
+
+        As we are using SAC, we choose our regularizer to correspond to the negative KL divergence between our
+        learned policy and a uniform distribution such that the first term in the CQL loss corresponds to the
+        soft maximum over all Q values at any state s.
+
+        For stability, we importance sample actions over random actions and from the current policy at s, s'.
+
+        Moreover, if we want to tune the cql_weight automatically, we include the threshold value target_q_gap
+        to penalize Q values that are overly-optimistic by the given threshold.
+
+        In this case, the CQL_loss is as follows:
+
+            CQL_loss = cql_weight * (Average [log (Average over a` in {a~, a_, a_'}: exp(Q(s,a`) - logprob(a`)) - Average [Q(s,a)]] - target_q_gap)
+
+        Args:
+            batch (dict): dictionary with torch.Tensors sampled
+                from a data loader and filtered by @process_batch_for_training
+
+            epoch (int): epoch number - required by some Algos that need
+                to perform staged training and early stopping
+
+            validate (bool): if True, don't perform any learning updates.
+
+        Returns:
+            info (dict): dictionary of relevant inputs, outputs, and losses
+                that might be relevant for logging
+        """
+        info = OrderedDict()
+        B, H, A = batch["actions"].shape
+        N = self.algo_config.critic.num_random_actions
+
+        # Get predicted Q-values from taken actions
+        q_preds = [critic(obs_dict=batch["obs"], acts=batch["actions"], goal_dict=batch["goal_obs"])
+                   for critic in self.nets["critic"]]
+
+        # Sample actions at the current and next step
+        curr_dist = self.nets["actor"].forward_train(obs_dict=batch["obs"], goal_dict=batch["goal_obs"])
+        next_dist = self.nets["actor"].forward_train(obs_dict=batch["next_obs"], goal_dict=batch["goal_obs"])
+        next_actions, next_log_prob = self._get_actions_and_log_prob(dist=next_dist)
+
+        # Don't capture gradients here, since the critic target network doesn't get trained (only soft updated)
+        with torch.no_grad():
+            # We take the max over all samples if the number of action samples is > 1
+            if self.algo_config.critic.num_action_samples > 1:
+                # Generate the target q values, using the backup from the next state
+                temp_actions = next_dist.rsample(sample_shape=(self.algo_config.critic.num_action_samples,)).permute(1, 0, 2)
+                target_qs = [self._get_qs_from_actions(
+                    obs_dict=batch["next_obs"], actions=temp_actions, goal_dict=batch["goal_obs"], q_net=critic)
+                                 .max(dim=1, keepdim=True)[0] for critic in self.nets["critic_target"]]
+            else:
+                target_qs = [critic(obs_dict=batch["next_obs"], acts=next_actions, goal_dict=batch["goal_obs"])
+                             for critic in self.nets["critic_target"]]
+            # Take the minimum over all critics
+            target_qs, _ = torch.cat(target_qs, dim=1).min(dim=1, keepdim=True)
+            # If only sampled once from each critic and not using a deterministic backup, subtract the logprob as well
+            if self.algo_config.critic.num_action_samples == 1 and not self.deterministic_backup:
+                target_qs = target_qs - self.log_entropy_weight.exp() * next_log_prob
+
+            # Calculate the q target values
+            done_mask_batch = 1. - batch["dones"]
+            info["done_masks"] = done_mask_batch
+            q_target = batch["rewards"] + done_mask_batch * self.discount * target_qs
+
+        # Calculate CQL stuff
+        cql_random_actions = torch.FloatTensor(N, B, H, A).uniform_(-1., 1.).to(self.device)                           # shape (N, B, H, A)
+        cql_random_log_prob = np.log(0.5 ** A)
+        cql_curr_actions, cql_curr_log_prob = self._get_actions_and_log_prob(dist=curr_dist, sample_shape=(N,))     # shape (N, B, H, A) and (N, B, H, 1)
+        cql_next_actions, cql_next_log_prob = self._get_actions_and_log_prob(dist=next_dist, sample_shape=(N,))     # shape (N, B, H, A) and (N, B, H, 1)
+        cql_curr_log_prob = cql_curr_log_prob.squeeze(dim=-1).permute(1, 0, 2).detach()                                # shape (B, N, H)
+        cql_next_log_prob = cql_next_log_prob.squeeze(dim=-1).permute(1, 0, 2).detach()                                # shape (B, N, H)
+        q_cats = []     # Each entry shape will be (B, N)
+
+        for critic, q_pred in zip(self.nets["critic"], q_preds):
+            # Compose Q values over all sampled actions (importance sampled)
+            q_rand = self._get_qs_from_actions(obs_dict=batch["obs"], actions=cql_random_actions.permute(1, 0, 2, 3), goal_dict=batch["goal_obs"], q_net=critic)
+            q_curr = self._get_qs_from_actions(obs_dict=batch["obs"], actions=cql_curr_actions.permute(1, 0, 2, 3), goal_dict=batch["goal_obs"], q_net=critic)
+            q_next = self._get_qs_from_actions(obs_dict=batch["obs"], actions=cql_next_actions.permute(1, 0, 2, 3), goal_dict=batch["goal_obs"], q_net=critic)
+            q_cat = torch.cat([
+                q_rand - cql_random_log_prob,
+                q_next - cql_next_log_prob,
+                q_curr - cql_curr_log_prob,
+            ], dim=1)           # shape (B, 3 * N, H)
+            q_cats.append(q_cat.permute(0, 2, 1))  # shape (B, H, 3*N)
+
+        # Calculate the losses for all critics
+        cql_losses = []
+        critic_losses = []
+        cql_weight = torch.clamp(self.log_cql_weight.exp(), min=0.0, max=1000000.0)
+        info["critic/cql_weight"] = cql_weight.item()
+        for i, (q_pred, q_cat) in enumerate(zip(q_preds, q_cats)):
+            print("\nq_pred.shape:", q_pred.shape)
+            print("\nq_cat.shape:", q_cat.shape)
+            # Calculate td error loss
+            td_loss = self.td_loss_fcn(q_pred, q_target)
+            # Calculate cql loss
+            cql_loss = cql_weight * (self.min_q_weight * (torch.logsumexp(q_cat, dim=1).mean() - q_pred.mean()) -
+                                     self.target_q_gap)
+            cql_losses.append(cql_loss)
+            # Calculate total loss
+            loss = td_loss + cql_loss
+            critic_losses.append(loss)
+            info[f"critic/critic{i+1}_loss"] = loss
+
+        # Run gradient descent if we're not validating
+        if not validate:
+            # Train CQL weight if tuning automatically
+            if self.automatic_cql_tuning:
+                cql_weight_loss = -torch.stack(cql_losses).mean()
+                info[
+                    "critic/cql_weight_loss"] = cql_weight_loss.item()  # Make sure to not store computation graph since we retain graph after backward() call
+                self.optimizers["cql"].zero_grad()
+                cql_weight_loss.backward(retain_graph=True)
+                self.optimizers["cql"].step()
+                info["critic/cql_grad_norms"] = self.log_cql_weight.grad.data.norm(2).pow(2).item()
+
+            # Train critics
+            for i, (critic_loss, critic, critic_target, optimizer) in enumerate(zip(
+                    critic_losses, self.nets["critic"], self.nets["critic_target"], self.optimizers["critic"]
+            )):
+                retain_graph = (i < (len(critic_losses) - 1))
+                critic_grad_norms = TorchUtils.backprop_for_loss(
+                    net=critic,
+                    optim=optimizer,
+                    loss=critic_loss,
+                    max_grad_norm=self.algo_config.critic.max_gradient_norm,
+                    retain_graph=retain_graph,
+                )
+                info[f"critic/critic{i+1}_grad_norms"] = critic_grad_norms
+                with torch.no_grad():
+                    TorchUtils.soft_update(source=critic, target=critic_target, tau=self.algo_config.target_tau)
+
+        # Return stats
+        return info        
 
     def get_action(self, obs_dict, goal_dict=None):
         """

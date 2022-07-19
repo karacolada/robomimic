@@ -443,14 +443,15 @@ class RNNActionValueNetwork(RNN_MIMO_MLP):
             mod = list(obs_dict.keys())[0]
             goal_dict = TensorUtils.unsqueeze_expand_at(goal_dict, size=obs_dict[mod].shape[1], dim=1)
         
-        #values = super(RNNActionValueNetwork, self).forward(obs=inputs, goal=goal_dict)["value"]
         outputs = super(RNNActionValueNetwork, self).forward(obs=inputs, goal=goal_dict, rnn_init_state=rnn_init_state, return_state=return_state)
         
         if return_state:
-            values, state = outputs
+            out, state = outputs
         else:
-            values = outputs
+            out = outputs
             state = None
+        
+        values = out["value"]
         
         if self.value_bounds is not None:
             values = self._value_offset + self._value_scale * torch.tanh(values)
