@@ -806,7 +806,7 @@ class CQL_RNN(CQL):
         return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
 
     @staticmethod
-    def _get_qs_from_actions(obs_dict, actions, goal_dict, q_net):
+    def _get_qs_from_actions(obs_dict, actions, goal_dict, q_net):  # thought a lot about this, should be correct
         """
         Helper function for grabbing Q values given a single state and multiple (N) sampled actions.
 
@@ -817,20 +817,22 @@ class CQL_RNN(CQL):
             q_net (nn.Module): Q net to pass the observations and actions
 
         Returns:
-            tensor: (B, N, H) corresponding Q values
+            tensor: (B, N, T) corresponding Q values
         """
         # Get the number of sampled actions
-        B, N, H, D = actions.shape
+        B, N, T, D = actions.shape
 
-        # Repeat obs and goals in the batch dimension
+        # Repeat obs and goals in the batch dimension: (B, T, D) -> (B*N, T, D)
+        # example: o_stacked[0:10, :, 0] will all have the same value as o[0, :, 0]
+        # example: o_stacked[10:20, :, 0] will all have the same value as o[1, :, 0]
         obs_dict_stacked = ObsUtils.repeat_and_stack_observation(obs_dict, N)
         goal_dict_stacked = ObsUtils.repeat_and_stack_observation(goal_dict, N)
 
         # Pass the obs and (flattened) actions through to get the Q values
-        qs = q_net(obs_dict=obs_dict_stacked, acts=actions.reshape(-1, H, D), goal_dict=goal_dict_stacked)
+        qs = q_net(obs_dict=obs_dict_stacked, acts=actions.reshape(-1, T, D), goal_dict=goal_dict_stacked)
 
         # Unflatten output
-        qs = qs.reshape(B, N, H)
+        qs = qs.reshape(B, N, T)
 
         return qs
 
@@ -885,7 +887,7 @@ class CQL_RNN(CQL):
                 that might be relevant for logging
         """
         info = OrderedDict()
-        B, H, A = batch["actions"].shape
+        B, T, A = batch["actions"].shape
         N = self.algo_config.critic.num_random_actions
 
         # Get predicted Q-values from taken actions
@@ -921,12 +923,12 @@ class CQL_RNN(CQL):
             q_target = batch["rewards"] + done_mask_batch * self.discount * target_qs
 
         # Calculate CQL stuff
-        cql_random_actions = torch.FloatTensor(N, B, H, A).uniform_(-1., 1.).to(self.device)                           # shape (N, B, H, A)
+        cql_random_actions = torch.FloatTensor(N, B, T, A).uniform_(-1., 1.).to(self.device)                           # shape (N, B, T, A)
         cql_random_log_prob = np.log(0.5 ** A)
-        cql_curr_actions, cql_curr_log_prob = self._get_actions_and_log_prob(dist=curr_dist, sample_shape=(N,))     # shape (N, B, H, A) and (N, B, H, 1)
-        cql_next_actions, cql_next_log_prob = self._get_actions_and_log_prob(dist=next_dist, sample_shape=(N,))     # shape (N, B, H, A) and (N, B, H, 1)
-        cql_curr_log_prob = cql_curr_log_prob.squeeze(dim=-1).permute(1, 0, 2).detach()                                # shape (B, N, H)
-        cql_next_log_prob = cql_next_log_prob.squeeze(dim=-1).permute(1, 0, 2).detach()                                # shape (B, N, H)
+        cql_curr_actions, cql_curr_log_prob = self._get_actions_and_log_prob(dist=curr_dist, sample_shape=(N,))     # shape (N, B, T, A) and (N, B, T, 1)
+        cql_next_actions, cql_next_log_prob = self._get_actions_and_log_prob(dist=next_dist, sample_shape=(N,))     # shape (N, B, T, A) and (N, B, T, 1)
+        cql_curr_log_prob = cql_curr_log_prob.squeeze(dim=-1).permute(1, 0, 2).detach()                                # shape (B, N, T)
+        cql_next_log_prob = cql_next_log_prob.squeeze(dim=-1).permute(1, 0, 2).detach()                                # shape (B, N, T)
         q_cats = []     # Each entry shape will be (B, N)
 
         for critic, q_pred in zip(self.nets["critic"], q_preds):
@@ -938,8 +940,8 @@ class CQL_RNN(CQL):
                 q_rand - cql_random_log_prob,
                 q_next - cql_next_log_prob,
                 q_curr - cql_curr_log_prob,
-            ], dim=1)           # shape (B, 3 * N, H)
-            q_cats.append(q_cat.permute(0, 2, 1))  # shape (B, H, 3*N)
+            ], dim=1)           # shape (B, 3 * N, T)
+            q_cats.append(q_cat.permute(0, 2, 1))  # shape (B, T, 3*N)
 
         # Calculate the losses for all critics
         cql_losses = []
@@ -948,7 +950,8 @@ class CQL_RNN(CQL):
         info["critic/cql_weight"] = cql_weight.item()
         for i, (q_pred, q_cat) in enumerate(zip(q_preds, q_cats)):
             print("\nq_pred.shape:", q_pred.shape)
-            print("\nq_cat.shape:", q_cat.shape)
+            print("q_cat.shape:", q_cat.shape)
+            print("td_loss_fcn:", self.td_loss_fcn)
             # Calculate td error loss
             td_loss = self.td_loss_fcn(q_pred, q_target)
             # Calculate cql loss
