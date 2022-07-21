@@ -445,8 +445,6 @@ class CQL(PolicyAlgo, ValueAlgo):
         cql_weight = torch.clamp(self.log_cql_weight.exp(), min=0.0, max=1000000.0)
         info["critic/cql_weight"] = cql_weight.item()
         for i, (q_pred, q_cat) in enumerate(zip(q_preds, q_cats)):
-            print("\nq_pred.shape:", q_pred.shape)
-            print("\nq_cat.shape:", q_cat.shape)
             # Calculate td error loss
             td_loss = self.td_loss_fcn(q_pred, q_target)
             # Calculate cql loss
@@ -794,12 +792,12 @@ class CQL_RNN(CQL):
         #reward_seq = batch["rewards"][:, :self.n_step]
         #discounts = torch.pow(self.algo_config.discount, torch.arange(self.n_step).float()).unsqueeze(0)
         #input_batch["rewards"] = (reward_seq * discounts).sum(dim=1).unsqueeze(1)
-        input_batch["rewards"] = batch["rewards"]
+        input_batch["rewards"] = batch["rewards"].unsqueeze(-1)
 
         # consider this n-step seqeunce done if any intermediate dones are present
         #done_seq = batch["dones"][:, :self.n_step]
         #input_batch["dones"] = (done_seq.sum(dim=1) > 0).float().unsqueeze(1)
-        input_batch["dones"] = batch["dones"]
+        input_batch["dones"] = batch["dones"].unsqueeze(-1)
 
         assert not (self._rnn_is_open_loop_actor or self._rnn_is_open_loop_critic), "open-loop RNN is not implemented for CQL-RNN"
 
@@ -902,17 +900,21 @@ class CQL_RNN(CQL):
         # Don't capture gradients here, since the critic target network doesn't get trained (only soft updated)
         with torch.no_grad():
             # We take the max over all samples if the number of action samples is > 1
-            if self.algo_config.critic.num_action_samples > 1:
+            if self.algo_config.critic.num_action_samples > 1:  # TODO: review this! is not used r/n, but is probably broken
                 # Generate the target q values, using the backup from the next state
                 temp_actions = next_dist.rsample(sample_shape=(self.algo_config.critic.num_action_samples,)).permute(1, 0, 2)
+                print("\ntemp_actions.shape:", temp_actions.shape)
                 target_qs = [self._get_qs_from_actions(
                     obs_dict=batch["next_obs"], actions=temp_actions, goal_dict=batch["goal_obs"], q_net=critic)
                                  .max(dim=1, keepdim=True)[0] for critic in self.nets["critic_target"]]
+                print("\ntarget_qs:")
+                for q in target_qs:
+                    print("target_q.shape:", q.shape)
             else:
                 target_qs = [critic(obs_dict=batch["next_obs"], acts=next_actions, goal_dict=batch["goal_obs"])
                              for critic in self.nets["critic_target"]]
             # Take the minimum over all critics
-            target_qs, _ = torch.cat(target_qs, dim=1).min(dim=1, keepdim=True)
+            target_qs, _ = torch.cat(target_qs, dim=-1).min(dim=-1, keepdim=True)
             # If only sampled once from each critic and not using a deterministic backup, subtract the logprob as well
             if self.algo_config.critic.num_action_samples == 1 and not self.deterministic_backup:
                 target_qs = target_qs - self.log_entropy_weight.exp() * next_log_prob
@@ -949,9 +951,6 @@ class CQL_RNN(CQL):
         cql_weight = torch.clamp(self.log_cql_weight.exp(), min=0.0, max=1000000.0)
         info["critic/cql_weight"] = cql_weight.item()
         for i, (q_pred, q_cat) in enumerate(zip(q_preds, q_cats)):
-            print("\nq_pred.shape:", q_pred.shape)
-            print("q_cat.shape:", q_cat.shape)
-            print("td_loss_fcn:", self.td_loss_fcn)
             # Calculate td error loss
             td_loss = self.td_loss_fcn(q_pred, q_target)
             # Calculate cql loss
