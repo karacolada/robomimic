@@ -1044,3 +1044,133 @@ class CQL_RNN(CQL):
         self._rnn_hidden_state_actor = None
         self._rnn_counter_critics = 0
         self._rnn_counter_actor = 0
+
+class CQL_EXT(CQL):
+    """
+    CQL training with history-extended state.
+    """
+    def __init__(self, **kwargs):
+        # run super init first
+        super().__init__(**kwargs)
+        # extend obs shapes
+        obs_shapes = OrderedDict()
+        for k in self.obs_shapes.keys():
+            obs_shapes[k] = [self.algo_config.ext.history_length] + self.obs_shapes[k]
+        self.obs_shapes = obs_shapes
+
+    def process_batch_for_training(self, batch):
+        """
+        Processes input batch from a data loader to filter out relevant info and prepare the batch for training.
+
+        Args:
+            batch (dict): dictionary with torch.Tensors sampled
+                from a data loader
+
+        Returns:
+            input_batch (dict): processed and filtered batch that
+                will be used for training
+        """
+        input_batch = dict()
+
+        assert self.n_step == 1, "higher n_step than 1 is not implemented for CQL-EXT"
+        # Make sure the trajectory of actions received is greater than our step horizon
+        #assert batch["actions"].shape[1] >= self.n_step
+        
+
+        # keep obs sequences
+        input_batch["obs"] = batch["obs"]
+        input_batch["next_obs"] = batch["next_obs"]
+        #input_batch["next_obs"] = {k: batch["next_obs"][k][:, self.n_step - 1, :] for k in batch["next_obs"]}
+        # remove temporal batches for all others
+        input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
+        input_batch["actions"] = batch["actions"][:, 0, :]
+
+        # note: ensure scalar signals (rewards, done) retain last dimension of 1 to be compatible with model outputs
+
+        # single timestep reward is discounted sum of intermediate rewards in sequence
+        reward_seq = batch["rewards"][:, :self.n_step]
+        discounts = torch.pow(self.algo_config.discount, torch.arange(self.n_step).float()).unsqueeze(0)
+        input_batch["rewards"] = (reward_seq * discounts).sum(dim=1).unsqueeze(1)
+
+        # consider this n-step seqeunce done if any intermediate dones are present
+        done_seq = batch["dones"][:, :self.n_step]
+        input_batch["dones"] = (done_seq.sum(dim=1) > 0).float().unsqueeze(1)
+
+        return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
+    
+    def _build_obs_history(self, obs_dict, type):
+        """
+        Build observation history for extended input to policy.
+
+        Args:
+            obs_dict (dict): current observation
+            type (str): one of "actor", "critic"
+        """
+        assert type in ["actor", "critic"]
+        if self._obs_history_length[type] == 0:
+            self.obs_history[type] = obs_dict
+            self._obs_history_length[type] = 1
+        elif self._obs_history_length[type] < self.algo_config.ext.history_length:
+            self.obs_history[type] = {k: torch.hstack((self.obs_history[type][k], obs_dict[k])) for k in obs_dict}
+            self._obs_history_length[type] += 1
+        else:  # need to trim in the front
+            self.obs_history[type] = {k: torch.hstack((self.obs_history[type][k][:,obs_dict[k].shape[1]:], obs_dict[k])) for k in obs_dict}
+
+
+    def get_action(self, obs_dict, goal_dict=None):
+        """
+        Get policy action outputs.
+
+        Args:
+            obs_dict (dict): current observation
+            goal_dict (dict): (optional) goal
+
+        Returns:
+            action (torch.Tensor): action tensor
+        """
+        assert not self.nets.training
+        self._build_obs_history(obs_dict, "actor")
+        if self._obs_history_length["actor"] < self.algo_config.ext.history_length:
+            # recognise batches
+            for k in self.obs_shapes.keys():
+                batch_dim = []
+                if obs_dict[k].shape[0] != self.obs_shapes[k][0]:
+                    batch_dim.append(obs_dict[k].shape[0])
+            if len(batch_dim) == 0:  # no batches
+                return torch.zeros(self.ac_dim).unsqueeze(0).to(self.device)
+            else:
+                assert len(set(batch_dim)) == 1 # all equal
+                return torch.zeros(batch_dim[0], self.ac_dim).to(self.device)
+        else:
+            return self.nets["actor"](obs_dict=self.obs_history["actor"], goal_dict=goal_dict)
+
+    def get_state_action_value(self, obs_dict, actions, goal_dict=None):
+        """
+        Get state-action value outputs.
+
+        Args:
+            obs_dict (dict): current observation
+            actions (torch.Tensor): action
+            goal_dict (dict): (optional) goal
+
+        Returns:
+            value (torch.Tensor): value tensor
+        """
+        assert not self.nets.training
+        self._build_obs_history(obs_dict, "critic")
+        if self._obs_history_length["actor"] < self.algo_config.ext.history_length:
+            # recognise batches
+            for k in self.obs_shapes.keys():
+                batch_dim = []
+                if obs_dict[k].shape[0] != self.obs_shapes[k][0]:
+                    batch_dim.append(obs_dict[k].shape[0])
+            if len(batch_dim) == 0:  # no batches
+                return torch.zeros(1).unsqueeze(0).to(self.device)  # TODO: might be wrong about the batches
+            else:
+                assert len(set(batch_dim)) == 1 # all equal
+                return torch.zeros(batch_dim[0], 1).to(self.device)  # TODO: might be wrong about the batches
+        else:
+            return self.nets["critic"][0](self.obs_history["critic"], actions, goal_dict=goal_dict)
+
+    def reset(self):
+        self._obs_history_length = {"actor": 0, "critic": 0}
