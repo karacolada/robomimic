@@ -781,7 +781,6 @@ class CQL_RNN(CQL):
 
         # keep temporal batches for all
         input_batch["obs"] = batch["obs"]
-        #input_batch["next_obs"] = {k: batch["next_obs"][k][:, self.n_step - 1, :] for k in batch["next_obs"]}
         input_batch["next_obs"] = batch["next_obs"]
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
         input_batch["actions"] = batch["actions"]
@@ -900,19 +899,16 @@ class CQL_RNN(CQL):
         # Don't capture gradients here, since the critic target network doesn't get trained (only soft updated)
         with torch.no_grad():
             # We take the max over all samples if the number of action samples is > 1
-            if self.algo_config.critic.num_action_samples > 1:  # TODO: review this! is not used r/n, but is probably broken
+            if self.algo_config.critic.num_action_samples > 1:
                 # Generate the target q values, using the backup from the next state
-                temp_actions = next_dist.rsample(sample_shape=(self.algo_config.critic.num_action_samples,)).permute(1, 0, 2)
-                print("\ntemp_actions.shape:", temp_actions.shape)
+                temp_actions = next_dist.rsample(sample_shape=(self.algo_config.critic.num_action_samples,)).permute(1, 0, 2, 3)  # shape (B, N, T, A)
                 target_qs = [self._get_qs_from_actions(
                     obs_dict=batch["next_obs"], actions=temp_actions, goal_dict=batch["goal_obs"], q_net=critic)
-                                 .max(dim=1, keepdim=True)[0] for critic in self.nets["critic_target"]]
-                print("\ntarget_qs:")
-                for q in target_qs:
-                    print("target_q.shape:", q.shape)
+                                 .permute(0, 2, 1)  # new shape (B, T, N)
+                                 .max(dim=2, keepdim=True)[0] for critic in self.nets["critic_target"]] # shapes [(B, T, 1)]
             else:
                 target_qs = [critic(obs_dict=batch["next_obs"], acts=next_actions, goal_dict=batch["goal_obs"])
-                             for critic in self.nets["critic_target"]]
+                             for critic in self.nets["critic_target"]]  # shapes [(B, T, 1)]
             # Take the minimum over all critics
             target_qs, _ = torch.cat(target_qs, dim=-1).min(dim=-1, keepdim=True)
             # If only sampled once from each critic and not using a deterministic backup, subtract the logprob as well
