@@ -101,3 +101,7 @@ class CQLConfig(BaseConfig):
         self.algo.critic.rnn.open_loop = False                              # if True, action predictions are only based on a single observation (not sequence)
         self.algo.critic.rnn.kwargs.bidirectional = False                   # rnn kwargs
         self.algo.critic.rnn.kwargs.do_not_lock_keys()
+
+        # EXT
+        self.algo.ext.enabled = False                                       # whether to use an extended observation state
+        self.algo.ext.history_length = 10                                   # number of observations - should match train.seq_length

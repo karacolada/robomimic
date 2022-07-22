@@ -142,6 +142,10 @@
                     "bidirectional": false
                 }
             }
+        },
+        "ext": {
+            "enabled": false,
+            "history_length": 10
         }
     },
     "observation": {
