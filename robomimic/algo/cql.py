@@ -32,7 +32,7 @@ def algo_config_to_class(algo_config):
         algo_class: subclass of Algo
         algo_kwargs (dict): dictionary of additional kwargs to pass to algorithm
     """
-    if algo_config.actor.net.rnn.enabled and algo_config.critic.rnn.enabled:
+    if algo_config.critic.rnn.enabled:
         return CQL_RNN, {}
     return CQL, {}
 
@@ -686,9 +686,12 @@ class CQL_RNN(CQL):
 
         # Add network-specific args and define network class
         if self.algo_config.actor.net.type == "gaussian":
-            actor_cls = PolicyNets.RNNGaussianActorNetwork
             actor_args.update(dict(self.algo_config.actor.net.gaussian))
-            actor_args.update(BaseNets.rnn_args_from_config(self.algo_config.actor.net.rnn))
+            if self.algo_config.actor.net.rnn.enabled:
+                actor_cls = PolicyNets.RNNGaussianActorNetwork
+                actor_args.update(BaseNets.rnn_args_from_config(self.algo_config.actor.net.rnn))
+            else:
+                actor_cls = PolicyNets.GaussianActorNetwork
         else:
             # Unsupported actor type!
             raise ValueError(f"Unsupported actor requested. "
@@ -750,9 +753,10 @@ class CQL_RNN(CQL):
                 )
         
         # RNNs
-        assert self.algo_config.actor.net.rnn.horizon == self.algo_config.critic.rnn.horizon, "horizon (context) of actor + critic RNNs must be the same"
+        if self.algo_config.actor.net.rnn.enabled:
+            assert self.algo_config.actor.net.rnn.horizon == self.algo_config.critic.rnn.horizon, "horizon (context) of actor + critic RNNs must be the same"
 
-        self._rnn_horizon = self.algo_config.actor.net.rnn.horizon
+        self._rnn_horizon = self.algo_config.critic.rnn.horizon
         self._rnn_hidden_state_critic_0 = None
         self._rnn_hidden_state_actor = None
         self._rnn_counter_critics = 0
@@ -802,6 +806,33 @@ class CQL_RNN(CQL):
 
         return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
 
+    def _process_batch_for_actor(self, batch):
+        """
+        Processes input batch from a data loader to filter out relevant info and prepare the batch for training a non-recurrent actor (GaussianPolicyActor).
+
+        Args:
+            batch (dict): dictionary with torch.Tensors sampled
+                from a data loader
+
+        Returns:
+            input_batch (dict): processed and filtered batch that
+                will be used for training
+        """
+        if self.algo_config.actor.net.rnn.enabled:
+            return batch
+        
+        input_batch = dict()
+
+        # remove temporal batches for all, reshape to batch size B*T
+        input_batch["obs"] = {k: batch["obs"][k].reshape(-1, batch["obs"][k].shape[-1]) for k in batch["obs"]}
+        input_batch["next_obs"] = {k: batch["next_obs"][k].reshape(-1, batch["next_obs"][k].shape[-1]) for k in batch["next_obs"]}
+        input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
+        input_batch["actions"] = batch["actions"].reshape(-1, batch["actions"].shape[-1])
+        input_batch["rewards"] = batch["rewards"].reshape(-1, batch["rewards"].shape[-1])
+        input_batch["dones"] = batch["dones"].reshape(-1, batch["dones"].shape[-1])
+
+        return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
+
     @staticmethod
     def _get_qs_from_actions(obs_dict, actions, goal_dict, q_net):  # thought a lot about this, should be correct
         """
@@ -833,6 +864,99 @@ class CQL_RNN(CQL):
 
         return qs
 
+    def _train_policy_on_batch(self, batch, epoch, validate=False):
+        """
+        Training policy on a single batch of data.
+
+        Loss is the ExpValue over sampled states of the (weighted) logprob of a sampled action
+        under the current policy minus the Q value of associated with the (s, a) combo
+
+        Intuitively, this tries to improve the odds of sampling actions with high Q values while simultaneously
+        penalizing high probability actions.
+
+        Since we're in the continuous setting, we monte carlo sample.
+
+        Concretely:
+            Loss = Average[ entropy_weight * logprob(f(eps; s) | s) - Q(s, f(eps; s) ]
+
+            where we use the reparameterization trick with Gaussian function f(*) to parameterize
+            actions as a function of the sampled noise param eps given input state s
+
+        Additionally, we update the (log) entropy weight parameter if we're tuning that as well.
+
+        Args:
+            batch (dict): dictionary with torch.Tensors sampled
+                from a data loader and filtered by @process_batch_for_training
+
+            epoch (int): epoch number - required by some Algos that need
+                to perform staged training and early stopping
+
+            validate (bool): if True, don't perform any learning updates.
+
+        Returns:
+            info (dict): dictionary of relevant inputs, outputs, and losses
+                that might be relevant for logging
+        """
+        info = OrderedDict()
+
+        # Sample actions from policy and get log probs
+        if self.algo_config.actor.net.rnn.enabled:
+            dist = self.nets["actor"].forward_train(obs_dict=batch["obs"], goal_dict=batch["goal_obs"])
+        else:
+            actor_batch = self._process_batch_for_actor(batch)
+            dist = self.nets["actor"].forward_train(obs_dict=actor_batch["obs"], goal_dict=actor_batch["goal_obs"])
+        actions, log_prob = self._get_actions_and_log_prob(dist=dist)
+        if not self.algo_config.actor.net.rnn.enabled:  # unpack actions + logprobs
+            B, T, _ = batch["actions"].shape
+            actions = actions.reshape(B, T, -1)
+            log_prob = log_prob.reshape(B, T, -1)
+
+        # Calculate alpha
+        entropy_weight_loss = -(self.log_entropy_weight * (log_prob + self.target_entropy).detach()).mean() if\
+            self.automatic_entropy_tuning else 0.0
+        entropy_weight = self.log_entropy_weight.exp()
+
+        # Get predicted Q-values for all state, action pairs
+        pred_qs = [critic(obs_dict=batch["obs"], acts=actions, goal_dict=batch["goal_obs"])
+                   for critic in self.nets["critic"]]
+        # We take the minimum for stability
+        pred_qs, _ = torch.cat(pred_qs, dim=1).min(dim=1, keepdim=True)
+
+        # Use BC if we're in the beginning of training, otherwise calculate policy loss normally
+        baseline = dist.log_prob(batch["actions"]).unsqueeze(dim=-1) if\
+            self._num_batch_steps < self.bc_start_steps else pred_qs
+        policy_loss = (entropy_weight * log_prob - baseline).mean()
+
+        # Add info
+        info["entropy_weight"] = entropy_weight.item()
+        info["entropy_weight_loss"] = entropy_weight_loss.item() if \
+            self.automatic_entropy_tuning else entropy_weight_loss
+        info["actor/loss"] = policy_loss
+
+        # Take a training step if we're not validating
+        if not validate:
+            # Update batch step
+            self._num_batch_steps += 1
+            if self.automatic_entropy_tuning:
+                # Alpha
+                self.optimizers["entropy"].zero_grad()
+                entropy_weight_loss.backward()
+                self.optimizers["entropy"].step()
+                info["entropy_grad_norms"] = self.log_entropy_weight.grad.data.norm(2).pow(2).item()
+
+            # Policy
+            actor_grad_norms = TorchUtils.backprop_for_loss(
+                net=self.nets["actor"],
+                optim=self.optimizers["actor"],
+                loss=policy_loss,
+                max_grad_norm=self.algo_config.actor.max_gradient_norm,
+            )
+            # Add info
+            info["actor/grad_norms"] = actor_grad_norms
+
+        # Return stats
+        return info
+    
     def _train_critic_on_batch(self, batch, epoch, validate=False):
         """
         Training critic(s) on a single batch of data.
@@ -892,9 +1016,17 @@ class CQL_RNN(CQL):
                    for critic in self.nets["critic"]]
 
         # Sample actions at the current and next step
-        curr_dist = self.nets["actor"].forward_train(obs_dict=batch["obs"], goal_dict=batch["goal_obs"])
-        next_dist = self.nets["actor"].forward_train(obs_dict=batch["next_obs"], goal_dict=batch["goal_obs"])
+        if self.algo_config.actor.net.rnn.enabled:
+            curr_dist = self.nets["actor"].forward_train(obs_dict=batch["obs"], goal_dict=batch["goal_obs"])
+            next_dist = self.nets["actor"].forward_train(obs_dict=batch["next_obs"], goal_dict=batch["goal_obs"])
+        else:
+            actor_batch = self._process_batch_for_actor(batch)
+            curr_dist = self.nets["actor"].forward_train(obs_dict=actor_batch["obs"], goal_dict=actor_batch["goal_obs"])
+            next_dist = self.nets["actor"].forward_train(obs_dict=actor_batch["next_obs"], goal_dict=actor_batch["goal_obs"])         
         next_actions, next_log_prob = self._get_actions_and_log_prob(dist=next_dist)
+        if not self.algo_config.actor.net.rnn.enabled:  # unpack actions + logprobs
+            next_actions = next_actions.reshape(B, T, -1)
+            next_log_prob = next_log_prob.reshape(B, T, -1)
 
         # Don't capture gradients here, since the critic target network doesn't get trained (only soft updated)
         with torch.no_grad():
@@ -925,6 +1057,11 @@ class CQL_RNN(CQL):
         cql_random_log_prob = np.log(0.5 ** A)
         cql_curr_actions, cql_curr_log_prob = self._get_actions_and_log_prob(dist=curr_dist, sample_shape=(N,))     # shape (N, B, T, A) and (N, B, T, 1)
         cql_next_actions, cql_next_log_prob = self._get_actions_and_log_prob(dist=next_dist, sample_shape=(N,))     # shape (N, B, T, A) and (N, B, T, 1)
+        if not self.algo_config.actor.net.rnn.enabled:  # unpack T dim in actions + logprobs
+            cql_curr_actions = cql_curr_actions.reshape(N, B, T, -1)
+            cql_curr_log_prob = cql_curr_log_prob.reshape(N, B, T, -1)
+            cql_next_actions = cql_next_actions.reshape(N, B, T, -1)
+            cql_next_log_prob = cql_next_log_prob.reshape(N, B, T, -1)
         cql_curr_log_prob = cql_curr_log_prob.squeeze(dim=-1).permute(1, 0, 2).detach()                                # shape (B, N, T)
         cql_next_log_prob = cql_next_log_prob.squeeze(dim=-1).permute(1, 0, 2).detach()                                # shape (B, N, T)
         q_cats = []     # Each entry shape will be (B, N)
@@ -1002,14 +1139,19 @@ class CQL_RNN(CQL):
         """
         assert not self.nets.training
 
-        assert not self._rnn_is_open_loop_actor, "open-loop RNN is not implemented for CQL-RNN"
-        
-        if self._rnn_hidden_state_actor is None or self._rnn_counter_actor % self._rnn_horizon == 0:
-            batch_size = list(obs_dict.values())[0].shape[0]
-            self._rnn_hidden_state_actor = self.nets["actor"].get_rnn_init_state(batch_size=batch_size, device=self.device)
+        if self.algo_config.actor.net.rnn.enabled:
 
-        self._rnn_counter_actor += 1
-        action, self._rnn_hidden_state_actor = self.nets["actor"].forward_step(obs_dict=obs_dict, goal_dict=goal_dict, rnn_state=self._rnn_hidden_state_actor)
+            assert not self._rnn_is_open_loop_actor, "open-loop RNN is not implemented for CQL-RNN"
+
+            if self._rnn_hidden_state_actor is None or self._rnn_counter_actor % self._rnn_horizon == 0:
+                batch_size = list(obs_dict.values())[0].shape[0]
+                self._rnn_hidden_state_actor = self.nets["actor"].get_rnn_init_state(batch_size=batch_size, device=self.device)
+
+            self._rnn_counter_actor += 1
+            action, self._rnn_hidden_state_actor = self.nets["actor"].forward_step(obs_dict=obs_dict, goal_dict=goal_dict, rnn_state=self._rnn_hidden_state_actor)
+        else:
+            obs_dict_new = {k: obs_dict[k].reshape(-1, obs_dict[k].shape[-1]) for k in obs_dict}
+            action = self.nets["actor"](obs_dict=obs_dict_new, goal_dict=goal_dict)
         return action
 
     def get_state_action_value(self, obs_dict, actions, goal_dict=None):
