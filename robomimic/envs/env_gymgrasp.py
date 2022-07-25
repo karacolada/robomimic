@@ -120,6 +120,7 @@ class EnvGymGrasp(EB.EnvBase):
             assert self._current_obs is not None
             obs = self._current_obs
         ret = {}
+        obs = obs["obs_separate"]  # env returns dictionary {obs: <tensor of full obs>, obs_separate: {handPose: <tensor of handPose>, ...}}
         for k in obs.keys():
             ret[k] = obs[k].cpu()
         return ret
