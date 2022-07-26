@@ -565,7 +565,7 @@ class SharedRNNActionValueNetworks(RNN_MIMO_MLPs):
 
         output_shapes = self._get_output_shapes()
 
-        super(SharedRNNActionValueNetwork, self).__init__(
+        super(SharedRNNActionValueNetworks, self).__init__(
             input_obs_group_shapes=observation_group_shapes,
             output_shapes=output_shapes,
             mlp_layer_dims=mlp_layer_dims,

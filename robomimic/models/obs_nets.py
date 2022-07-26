@@ -944,7 +944,7 @@ class RNN_MIMO_MLPs(Module):
 
         self.per_step_nets = nn.ModuleList()
         self._has_mlp = (len(mlp_layer_dims) > 0)
-        for _ in ensemble_n:
+        for _ in range(self.ensemble_n):
             if self._has_mlp:
                 self.nets["mlp"] = MLP(
                     input_dim=rnn_output_dim,
@@ -1054,9 +1054,9 @@ class RNN_MIMO_MLPs(Module):
         # apply MLP + decoder to last RNN output
         assert outputs.ndim == 3 # [B, T, D]
         if self._has_mlp:
-            outputs = self.nets["decoder"](self.nets["mlp"](outputs[:, -1]))
+            outputs = [self.nets["decoder"][i](self.nets["mlp"][i](outputs[:, -1])) for i in range(self.ensemble_n)]
         else:
-            outputs = self.nets["decoder"](outputs[:, -1])
+            outputs = [self.nets["decoder"][i](outputs[:, -1]) for i in range(self.ensemble_n)]
 
         if return_state:
             return outputs, rnn_state
