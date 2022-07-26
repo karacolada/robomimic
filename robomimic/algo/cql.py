@@ -710,28 +710,38 @@ class CQL_RNN(CQL):
 
         # Critics
         critic_args =  {}
-        if self.algo_config.critic.rnn.enabled:
-            critic_cls = ValueNets.RNNActionValueNetwork
-            critic_args.update(BaseNets.rnn_args_from_config(self.algo_config.critic.rnn))
+        if self.algo_config.critic.rnn.shared:
+            critic_cls = ValueNets.SharedRNNActionValueNetworks
         else:
-            # Unsupported critic type!
-            raise ValueError(f"Unsupported critic requested. "
-                             f"Requested: RNN {self.algo_config.critic.rnn.enabled}, "
-                             f"valid options are: {[True]}")
-        self.nets["critic"] = nn.ModuleList()
-        self.nets["critic_target"] = nn.ModuleList()
-        for _ in range(self.algo_config.critic.ensemble.n):
-            for net_list in (self.nets["critic"], self.nets["critic_target"]):
-                critic = critic_cls(
+            critic_cls = ValueNets.RNNActionValueNetwork
+        critic_args.update(BaseNets.rnn_args_from_config(self.algo_config.critic.rnn))
+        if self.algo_config.critic.rnn.shared:
+            for c in ["critic", "critic_target"]:
+                self.nets[c] = critic_cls(
                     obs_shapes=self.obs_shapes,
                     ac_dim=self.ac_dim,
                     mlp_layer_dims=self.algo_config.critic.layer_dims,
+                    ensemble_n=self.algo_config.critic.ensemble.n,
                     value_bounds=self.algo_config.critic.value_bounds,
                     goal_shapes=self.goal_shapes,
                     encoder_kwargs=ObsUtils.obs_encoder_kwargs_from_config(self.obs_config.encoder),
                     **critic_args,
                 )
-                net_list.append(critic)
+        else:
+            self.nets["critic"] = nn.ModuleList()
+            self.nets["critic_target"] = nn.ModuleList()
+            for _ in range(self.algo_config.critic.ensemble.n):
+                for net_list in (self.nets["critic"], self.nets["critic_target"]):
+                    critic = critic_cls(
+                        obs_shapes=self.obs_shapes,
+                        ac_dim=self.ac_dim,
+                        mlp_layer_dims=self.algo_config.critic.layer_dims,
+                        value_bounds=self.algo_config.critic.value_bounds,
+                        goal_shapes=self.goal_shapes,
+                        encoder_kwargs=ObsUtils.obs_encoder_kwargs_from_config(self.obs_config.encoder),
+                        **critic_args,
+                    )
+                    net_list.append(critic)
 
         # Entropy (if automatically tuning)
         if self.automatic_entropy_tuning:
@@ -757,7 +767,7 @@ class CQL_RNN(CQL):
             assert self.algo_config.actor.net.rnn.horizon == self.algo_config.critic.rnn.horizon, "horizon (context) of actor + critic RNNs must be the same"
 
         self._rnn_horizon = self.algo_config.critic.rnn.horizon
-        self._rnn_hidden_state_critic_0 = None
+        self._rnn_hidden_state_critic = None
         self._rnn_hidden_state_actor = None
         self._rnn_counter_critics = 0
         self._rnn_counter_actor = 0
@@ -834,7 +844,7 @@ class CQL_RNN(CQL):
         return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
 
     @staticmethod
-    def _get_qs_from_actions(obs_dict, actions, goal_dict, q_net):  # thought a lot about this, should be correct
+    def _get_qs_from_actions(obs_dict, actions, goal_dict, q_net):
         """
         Helper function for grabbing Q values given a single state and multiple (N) sampled actions.
 
@@ -860,7 +870,10 @@ class CQL_RNN(CQL):
         qs = q_net(obs_dict=obs_dict_stacked, acts=actions.reshape(-1, T, D), goal_dict=goal_dict_stacked)
 
         # Unflatten output
-        qs = qs.reshape(B, N, T)
+        if type(qs) == list:
+            qs = [q.reshape(B, N, T) for q in qs]
+        else:
+            qs = qs.reshape(B, N, T)
 
         return qs
 
@@ -917,8 +930,11 @@ class CQL_RNN(CQL):
         entropy_weight = self.log_entropy_weight.exp()
 
         # Get predicted Q-values for all state, action pairs
-        pred_qs = [critic(obs_dict=batch["obs"], acts=actions, goal_dict=batch["goal_obs"])
-                   for critic in self.nets["critic"]]
+        if self.algo_config.critic.rnn.shared:
+            pred_qs = self.nets["critic"](obs_dict=batch["obs"], acts=actions, goal_dict=batch["goal_obs"])
+        else:
+            pred_qs = [critic(obs_dict=batch["obs"], acts=actions, goal_dict=batch["goal_obs"])
+                       for critic in self.nets["critic"]]
         # We take the minimum for stability
         pred_qs, _ = torch.cat(pred_qs, dim=1).min(dim=1, keepdim=True)
 
@@ -1012,8 +1028,11 @@ class CQL_RNN(CQL):
         N = self.algo_config.critic.num_random_actions
 
         # Get predicted Q-values from taken actions
-        q_preds = [critic(obs_dict=batch["obs"], acts=batch["actions"], goal_dict=batch["goal_obs"])
-                   for critic in self.nets["critic"]]
+        if self.algo_config.critic.rnn.shared:
+            q_preds = self.nets["critic"](obs_dict=batch["obs"], acts=batch["actions"], goal_dict=batch["goal_obs"])
+        else:
+            q_preds = [critic(obs_dict=batch["obs"], acts=batch["actions"], goal_dict=batch["goal_obs"])
+                       for critic in self.nets["critic"]]
 
         # Sample actions at the current and next step
         if self.algo_config.actor.net.rnn.enabled:
@@ -1034,13 +1053,20 @@ class CQL_RNN(CQL):
             if self.algo_config.critic.num_action_samples > 1:
                 # Generate the target q values, using the backup from the next state
                 temp_actions = next_dist.rsample(sample_shape=(self.algo_config.critic.num_action_samples,)).permute(1, 0, 2, 3)  # shape (B, N, T, A)
-                target_qs = [self._get_qs_from_actions(
-                    obs_dict=batch["next_obs"], actions=temp_actions, goal_dict=batch["goal_obs"], q_net=critic)
-                                 .permute(0, 2, 1)  # new shape (B, T, N)
-                                 .max(dim=2, keepdim=True)[0] for critic in self.nets["critic_target"]] # shapes [(B, T, 1)]
+                if self.algo_config.critic.rnn.shared:
+                    target_qs = self._get_qs_from_actions(obs_dict=batch["next_obs"], actions=temp_actions, goal_dict=batch["goal_obs"], q_net=self.nets["critic_target"])
+                    target_qs = [t.permute(0, 2, 1).max(dim=2, keepdim=True)[0] for t in target_qs]  # shapes [(B, T, 1)]
+                else:
+                    target_qs = [self._get_qs_from_actions(
+                        obs_dict=batch["next_obs"], actions=temp_actions, goal_dict=batch["goal_obs"], q_net=critic)
+                                     .permute(0, 2, 1)  # new shape (B, T, N)
+                                     .max(dim=2, keepdim=True)[0] for critic in self.nets["critic_target"]] # shapes [(B, T, 1)]
             else:
-                target_qs = [critic(obs_dict=batch["next_obs"], acts=next_actions, goal_dict=batch["goal_obs"])
-                             for critic in self.nets["critic_target"]]  # shapes [(B, T, 1)]
+                if self.algo_config.critic.rnn.shared:
+                    target_qs = self.nets["critic_target"](obs_dict=batch["next_obs"], acts=next_actions, goal_dict=batch["goal_obs"])  # shapes [(B, T, 1)]
+                else:
+                    target_qs = [critic(obs_dict=batch["next_obs"], acts=next_actions, goal_dict=batch["goal_obs"])
+                                 for critic in self.nets["critic_target"]]  # shapes [(B, T, 1)]
             # Take the minimum over all critics
             target_qs, _ = torch.cat(target_qs, dim=-1).min(dim=-1, keepdim=True)
             # If only sampled once from each critic and not using a deterministic backup, subtract the logprob as well
@@ -1066,17 +1092,30 @@ class CQL_RNN(CQL):
         cql_next_log_prob = cql_next_log_prob.squeeze(dim=-1).permute(1, 0, 2).detach()                                # shape (B, N, T)
         q_cats = []     # Each entry shape will be (B, N)
 
-        for critic, q_pred in zip(self.nets["critic"], q_preds):
+        if self.algo_config.critic.rnn.shared:
             # Compose Q values over all sampled actions (importance sampled)
-            q_rand = self._get_qs_from_actions(obs_dict=batch["obs"], actions=cql_random_actions.permute(1, 0, 2, 3), goal_dict=batch["goal_obs"], q_net=critic)
-            q_curr = self._get_qs_from_actions(obs_dict=batch["obs"], actions=cql_curr_actions.permute(1, 0, 2, 3), goal_dict=batch["goal_obs"], q_net=critic)
-            q_next = self._get_qs_from_actions(obs_dict=batch["obs"], actions=cql_next_actions.permute(1, 0, 2, 3), goal_dict=batch["goal_obs"], q_net=critic)
-            q_cat = torch.cat([
-                q_rand - cql_random_log_prob,
-                q_next - cql_next_log_prob,
-                q_curr - cql_curr_log_prob,
-            ], dim=1)           # shape (B, 3 * N, T)
-            q_cats.append(q_cat.permute(0, 2, 1))  # shape (B, T, 3*N)
+            q_rands = self._get_qs_from_actions(obs_dict=batch["obs"], actions=cql_random_actions.permute(1, 0, 2, 3), goal_dict=batch["goal_obs"], q_net=self.nets["critic"])
+            q_currs = self._get_qs_from_actions(obs_dict=batch["obs"], actions=cql_curr_actions.permute(1, 0, 2, 3), goal_dict=batch["goal_obs"], q_net=self.nets["critic"])
+            q_nexts = self._get_qs_from_actions(obs_dict=batch["obs"], actions=cql_next_actions.permute(1, 0, 2, 3), goal_dict=batch["goal_obs"], q_net=self.nets["critic"])
+            for q_rand, q_curr, q_next in zip(q_rands, q_currs, q_nexts):
+                q_cat = torch.cat([
+                    q_rand - cql_random_log_prob,
+                    q_next - cql_next_log_prob,
+                    q_curr - cql_curr_log_prob,
+                ], dim=1)           # shape (B, 3 * N, T)
+                q_cats.append(q_cat.permute(0, 2, 1))  # shape (B, T, 3*N)
+        else:
+            for critic, q_pred in zip(self.nets["critic"], q_preds):
+                # Compose Q values over all sampled actions (importance sampled)
+                q_rand = self._get_qs_from_actions(obs_dict=batch["obs"], actions=cql_random_actions.permute(1, 0, 2, 3), goal_dict=batch["goal_obs"], q_net=critic)
+                q_curr = self._get_qs_from_actions(obs_dict=batch["obs"], actions=cql_curr_actions.permute(1, 0, 2, 3), goal_dict=batch["goal_obs"], q_net=critic)
+                q_next = self._get_qs_from_actions(obs_dict=batch["obs"], actions=cql_next_actions.permute(1, 0, 2, 3), goal_dict=batch["goal_obs"], q_net=critic)
+                q_cat = torch.cat([
+                    q_rand - cql_random_log_prob,
+                    q_next - cql_next_log_prob,
+                    q_curr - cql_curr_log_prob,
+                ], dim=1)           # shape (B, 3 * N, T)
+                q_cats.append(q_cat.permute(0, 2, 1))  # shape (B, T, 3*N)
 
         # Calculate the losses for all critics
         cql_losses = []
@@ -1108,20 +1147,34 @@ class CQL_RNN(CQL):
                 info["critic/cql_grad_norms"] = self.log_cql_weight.grad.data.norm(2).pow(2).item()
 
             # Train critics
-            for i, (critic_loss, critic, critic_target, optimizer) in enumerate(zip(
-                    critic_losses, self.nets["critic"], self.nets["critic_target"], self.optimizers["critic"]
-            )):
+            if self.algo_config.critic.rnn.shared:
+                # backprop loss is sum over all critic losses (as in pomdp-baselines implementation https://github.com/twni2016/pomdp-baselines)
                 retain_graph = (i < (len(critic_losses) - 1))
                 critic_grad_norms = TorchUtils.backprop_for_loss(
-                    net=critic,
-                    optim=optimizer,
-                    loss=critic_loss,
+                    net=self.nets["critic"],
+                    optim=self.optimizers["critic"],
+                    loss=torch.stack(critic_losses).sum(dim=0),
                     max_grad_norm=self.algo_config.critic.max_gradient_norm,
                     retain_graph=retain_graph,
                 )
                 info[f"critic/critic{i+1}_grad_norms"] = critic_grad_norms
                 with torch.no_grad():
-                    TorchUtils.soft_update(source=critic, target=critic_target, tau=self.algo_config.target_tau)
+                    TorchUtils.soft_update(source=self.nets["critic"], target=self.nets["critic_target"], tau=self.algo_config.target_tau)
+            else:
+                for i, (critic_loss, critic, critic_target, optimizer) in enumerate(zip(
+                        critic_losses, self.nets["critic"], self.nets["critic_target"], self.optimizers["critic"]
+                )):
+                    retain_graph = (i < (len(critic_losses) - 1))
+                    critic_grad_norms = TorchUtils.backprop_for_loss(
+                        net=critic,
+                        optim=optimizer,
+                        loss=critic_loss,
+                        max_grad_norm=self.algo_config.critic.max_gradient_norm,
+                        retain_graph=retain_graph,
+                    )
+                    info[f"critic/critic{i+1}_grad_norms"] = critic_grad_norms
+                    with torch.no_grad():
+                        TorchUtils.soft_update(source=critic, target=critic_target, tau=self.algo_config.target_tau)
 
         # Return stats
         return info        
@@ -1170,19 +1223,24 @@ class CQL_RNN(CQL):
 
         assert not self._rnn_is_open_loop_critic, "open-loop RNN is not implemented for CQL-RNN"
         
-        if self._rnn_hidden_state_critic_0 is None or self._rnn_counter_critics % self._rnn_horizon == 0:
+        if self._rnn_hidden_state_critic is None or self._rnn_counter_critics % self._rnn_horizon == 0:
             batch_size = list(obs_dict.values())[0].shape[0]
-            self._rnn_hidden_state_critic_0 = self.nets["critics"][0].get_rnn_init_state(batch_size=batch_size, device=self.device)
+            if self.algo_config.critic.rnn.shared:
+                self._rnn_hidden_state_critic = self.nets["critics"].get_rnn_init_state(batch_size=batch_size, device=self.device)
+            else:
+                self._rnn_hidden_state_critic = self.nets["critics"][0].get_rnn_init_state(batch_size=batch_size, device=self.device)
 
         self._rnn_counter_critics += 1
 
-        return self.nets["critic"][0].forward_step(obs_dict, actions, goal_dict, rnn_state=self._rnn_hidden_state_critic_0)
+        if self.algo_config.critic.rnn.shared:
+            return self.nets["critic"].forward_step(obs_dict, actions, goal_dict, rnn_state=self._rnn_hidden_state_critic)[0]
+        return self.nets["critic"][0].forward_step(obs_dict, actions, goal_dict, rnn_state=self._rnn_hidden_state_critic)
 
     def reset(self):
         """
         Reset algo state to prepare for environment rollouts.
         """
-        self._rnn_hidden_state_critic_0 = None
+        self._rnn_hidden_state_critic = None
         self._rnn_hidden_state_actor = None
         self._rnn_counter_critics = 0
         self._rnn_counter_actor = 0
