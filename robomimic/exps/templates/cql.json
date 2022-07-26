@@ -133,6 +133,7 @@
             ],
             "rnn": {
                 "enabled": false,
+                "shared": false,
                 "horizon": 10,
                 "hidden_dim": 400,
                 "rnn_type": "LSTM",

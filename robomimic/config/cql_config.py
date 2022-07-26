@@ -94,6 +94,7 @@ class CQLConfig(BaseConfig):
 
         # RNN policy settings
         self.algo.critic.rnn.enabled = False                                # whether to train RNN critic
+        self.algo.critic.rnn.shared = False                                 # whether an ensemble of critics will use the same RNN network
         self.algo.critic.rnn.horizon = 10                                   # unroll length for RNN - should usually match train.seq_length
         self.algo.critic.rnn.hidden_dim = 400                               # hidden dimension size    
         self.algo.critic.rnn.rnn_type = "LSTM"                              # rnn type - one of "LSTM" or "GRU"
