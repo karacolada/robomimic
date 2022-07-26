@@ -13,7 +13,7 @@ import torch.nn.functional as F
 import torch.distributions as D
 
 import robomimic.utils.tensor_utils as TensorUtils
-from robomimic.models.obs_nets import MIMO_MLP, RNN_MIMO_MLP
+from robomimic.models.obs_nets import MIMO_MLP, RNN_MIMO_MLP, RNN_MIMO_MLPs
 from robomimic.models.distributions import DiscreteValueDistribution
 
 
@@ -319,7 +319,7 @@ class DistributionalActionValueNetwork(ActionValueNetwork):
 
 class RNNActionValueNetwork(RNN_MIMO_MLP):
     """
-    A basic Q (action-value) network that predicts values from observations
+    A recurrent Q (action-value) network that predicts values from observations
     and actions. Can optionally be goal conditioned on future observations.
     """
     def __init__(
@@ -481,6 +481,176 @@ class RNNActionValueNetwork(RNN_MIMO_MLP):
         value, state = self.forward(
             obs_dict, acts, goal_dict, rnn_init_state=rnn_state, return_state=True)
         return value[:, 0], state        
+
+    def _to_string(self):
+        return "action_dim={}\nvalue_bounds={}".format(self.ac_dim, self.value_bounds)
+
+class SharedRNNActionValueNetworks(RNN_MIMO_MLPs):
+    """
+    Ensemble of Q (action-value) networks that share an underlying RNN and predict values from observations
+    and actions. Can optionally be goal conditioned on future observations.
+    """
+    def __init__(
+        self,
+        obs_shapes,
+        ac_dim,
+        mlp_layer_dims,
+        ensemble_n,
+        rnn_hidden_dim,
+        rnn_num_layers,
+        rnn_type="LSTM",
+        rnn_kwargs=None,
+        per_step=True,
+        value_bounds=None,
+        goal_shapes=None,
+        encoder_kwargs=None,
+    ):
+        """
+        Args:
+            obs_shapes (OrderedDict): a dictionary that maps observation keys to
+                expected shapes for observations.
+
+            ac_dim (int): dimension of action space.
+
+            mlp_layer_dims ([int]): sequence of integers for the MLP hidden layers sizes. 
+
+            value_bounds (tuple): a 2-tuple corresponding to the lowest and highest possible return
+                that the network should be possible of generating. The network will rescale outputs
+                using a tanh layer to lie within these bounds. If None, no tanh re-scaling is done.
+
+            goal_shapes (OrderedDict): a dictionary that maps observation keys to
+                expected shapes for goal observations.
+
+            encoder_kwargs (dict or None): If None, results in default encoder_kwargs being applied. Otherwise, should
+                be nested dictionary containing relevant per-observation key information for encoder networks.
+                Should be of form:
+
+                obs_modality1: dict
+                    feature_dimension: int
+                    core_class: str
+                    core_kwargs: dict
+                        ...
+                        ...
+                    obs_randomizer_class: str
+                    obs_randomizer_kwargs: dict
+                        ...
+                        ...
+                obs_modality2: dict
+                    ...
+        """
+        self.value_bounds = value_bounds
+        if self.value_bounds is not None:
+            # convert [lb, ub] to a scale and offset for the tanh output, which is in [-1, 1]
+            self._value_scale = (float(self.value_bounds[1]) - float(self.value_bounds[0])) / 2.
+            self._value_offset = (float(self.value_bounds[1]) + float(self.value_bounds[0])) / 2.
+
+        assert isinstance(obs_shapes, OrderedDict)
+        new_obs_shapes = OrderedDict(obs_shapes)
+        new_obs_shapes["action"] = (ac_dim,)
+        self.obs_shapes = new_obs_shapes
+        self.ac_dim = ac_dim
+
+        # set up different observation groups for @MIMO_MLP
+        observation_group_shapes = OrderedDict()
+        observation_group_shapes["obs"] = OrderedDict(self.obs_shapes)
+
+        self._is_goal_conditioned = False
+        if goal_shapes is not None and len(goal_shapes) > 0:
+            assert isinstance(goal_shapes, OrderedDict)
+            self._is_goal_conditioned = True
+            self.goal_shapes = OrderedDict(goal_shapes)
+            observation_group_shapes["goal"] = OrderedDict(self.goal_shapes)
+        else:
+            self.goal_shapes = OrderedDict()
+
+        output_shapes = self._get_output_shapes()
+
+        super(SharedRNNActionValueNetwork, self).__init__(
+            input_obs_group_shapes=observation_group_shapes,
+            output_shapes=output_shapes,
+            mlp_layer_dims=mlp_layer_dims,
+            ensemble_n=ensemble_n,
+            rnn_hidden_dim=rnn_hidden_dim,
+            rnn_num_layers=rnn_num_layers,
+            rnn_type=rnn_type,
+            rnn_kwargs=rnn_kwargs,
+            per_step=per_step,
+            encoder_kwargs=encoder_kwargs
+        )    
+    
+    def _get_output_shapes(self):
+        """
+        Allow subclasses to re-define outputs from @MIMO_MLP, since we won't
+        always directly predict values, but may instead predict the parameters
+        of a value distribution.
+        """
+        return OrderedDict(value=(1,))
+
+    def output_shape(self, input_shape=None):
+        """
+        Function to compute output shape from inputs to this module. 
+
+        Args:
+            input_shape (iterable of int): shape of input. Does not include batch dimension.
+                Some modules may not need this argument, if their output does not depend 
+                on the size of the input, or if they assume fixed size input.
+
+        Returns:
+            out_shape ([int]): list of integers corresponding to output shape
+        """
+        return [1]
+
+    def forward(self, obs_dict, acts, goal_dict=None, rnn_init_state=None, return_state=False):
+        """
+        Forward through action value network, and then optionally use tanh scaling.
+        """
+        inputs = dict(obs_dict)
+        inputs["action"] = acts
+
+        if self._is_goal_conditioned:
+            assert goal_dict is not None
+            # repeat the goal observation in time to match dimension with obs_dict
+            mod = list(obs_dict.keys())[0]
+            goal_dict = TensorUtils.unsqueeze_expand_at(goal_dict, size=obs_dict[mod].shape[1], dim=1)
+        
+        outputs = super(SharedRNNActionValueNetwork, self).forward(obs=inputs, goal=goal_dict, rnn_init_state=rnn_init_state, return_state=return_state)
+        
+        if return_state:
+            outs, state = outputs
+        else:
+            outs = outputs
+            state = None
+        
+        values = [out["value"] for out in outs]
+        
+        if self.value_bounds is not None:
+            values = [self._value_offset + self._value_scale * torch.tanh(v) for v in values]
+
+        if return_state:
+            return values, state
+        else:
+            return values
+
+    def forward_step(self, obs_dict, acts, goal_dict=None, rnn_state=None):
+        """
+        Unroll RNN over single timestep to get actions.
+
+        Args:
+            obs_dict (dict): batch of observations. Should not contain
+                time dimension.
+            acts: batch of actions
+            goal_dict (dict): if not None, batch of goal observations
+            rnn_state: rnn hidden state, initialize to zero state if set to None
+
+        Returns:
+            actions (torch.Tensor): batch of actions - does not contain time dimension
+            state: updated rnn state
+        """
+        obs_dict = TensorUtils.to_sequence(obs_dict)
+        acts = TensorUtils.to_sequence(acts)
+        values, state = self.forward(
+            obs_dict, acts, goal_dict, rnn_init_state=rnn_state, return_state=True)
+        return [v[:, 0] for v in values], state
 
     def _to_string(self):
         return "action_dim={}\nvalue_bounds={}".format(self.ac_dim, self.value_bounds)
