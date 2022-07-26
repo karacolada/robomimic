@@ -756,11 +756,17 @@ class CQL_RNN(CQL):
 
         # sync target networks at beginning of training
         with torch.no_grad():
-            for critic, critic_target in zip(self.nets["critic"], self.nets["critic_target"]):
+            if self.algo_config.critic.rnn.shared:
                 TorchUtils.hard_update(
-                    source=critic,
-                    target=critic_target,
+                    source=self.nets["critic"],
+                    target=self.nets["critic_target"],
                 )
+            else:
+                for critic, critic_target in zip(self.nets["critic"], self.nets["critic_target"]):
+                    TorchUtils.hard_update(
+                        source=critic,
+                        target=critic_target,
+                    )
         
         # RNNs
         if self.algo_config.actor.net.rnn.enabled:
@@ -1148,16 +1154,14 @@ class CQL_RNN(CQL):
 
             # Train critics
             if self.algo_config.critic.rnn.shared:
-                # backprop loss is sum over all critic losses (as in pomdp-baselines implementation https://github.com/twni2016/pomdp-baselines)
-                retain_graph = (i < (len(critic_losses) - 1))
                 critic_grad_norms = TorchUtils.backprop_for_loss(
                     net=self.nets["critic"],
                     optim=self.optimizers["critic"],
                     loss=torch.stack(critic_losses).sum(dim=0),
                     max_grad_norm=self.algo_config.critic.max_gradient_norm,
-                    retain_graph=retain_graph,
+                    retain_graph=False,
                 )
-                info[f"critic/critic{i+1}_grad_norms"] = critic_grad_norms
+                info[f"critic/critic_grad_norms"] = critic_grad_norms
                 with torch.no_grad():
                     TorchUtils.soft_update(source=self.nets["critic"], target=self.nets["critic_target"], tau=self.algo_config.target_tau)
             else:
@@ -1178,6 +1182,86 @@ class CQL_RNN(CQL):
 
         # Return stats
         return info        
+
+    def log_info(self, info):
+        """
+        Process info dictionary from @train_on_batch to summarize
+        information to pass to tensorboard for logging.
+
+        Args:
+            info (dict): dictionary of info
+
+        Returns:
+            loss_log (dict): name -> summary statistic
+        """
+        loss_log = OrderedDict()
+
+        # record current optimizer learning rates
+        for k in self.optimizers:
+            keys = [k]
+            optims = [self.optimizers[k]]
+            for kp, optimizer in zip(keys, optims):
+                for i, param_group in enumerate(optimizer.param_groups):
+                    loss_log["Optimizer/{}{}_lr".format(kp, i)] = param_group["lr"]
+
+        # extract relevant logs for critic, and actor
+        loss_log["Loss"] = 0.
+        for loss_logger in [self._log_critic_info, self._log_actor_info]:
+            this_log = loss_logger(info)
+            if "Loss" in this_log:
+                # manually merge total loss
+                loss_log["Loss"] += this_log["Loss"]
+                del this_log["Loss"]
+            loss_log.update(this_log)
+
+        return loss_log
+
+    def _log_critic_info(self, info):
+        """
+        Helper function to extract critic-relevant information for logging.
+        """
+        loss_log = OrderedDict()
+        if "done_masks" in info:
+            loss_log["Critic/Done_Mask_Percentage"] = 100. * torch.mean(info["done_masks"]).item()
+        if "critic/q_targets" in info:
+            loss_log["Critic/Q_Targets"] = info["critic/q_targets"].mean().item()
+        loss_log["Loss"] = 0.
+        for critic_ind in range(self.algo_config.critic.ensemble.n):
+            loss_log["Critic/Critic{}_Loss".format(critic_ind + 1)] = info["critic/critic{}_loss".format(critic_ind + 1)].item()
+            if "critic/critic{}_grad_norms".format(critic_ind + 1) in info:
+                loss_log["Critic/Critic{}_Grad_Norms".format(critic_ind + 1)] = info["critic/critic{}_grad_norms".format(critic_ind + 1)]
+            loss_log["Loss"] += loss_log["Critic/Critic{}_Loss".format(critic_ind + 1)]
+        if "critic/cql_weight_loss" in info:
+            loss_log["Critic/CQL_Weight"] = info["critic/cql_weight"]
+            loss_log["Critic/CQL_Weight_Loss"] = info["critic/cql_weight_loss"]
+            loss_log["Critic/CQL_Grad_Norms"] = info["critic/cql_grad_norms"]
+        return loss_log
+
+    def set_train(self):
+        """
+        Prepare networks for evaluation. Update from super class to make sure
+        target networks stay in evaluation mode all the time.
+        """
+        self.nets.train()
+
+        # target networks always in eval
+        if self.algo_config.critic.rnn.shared:
+            self.nets["critic_target"].eval()
+        else:
+            for critic in self.nets["critic_target"]:
+                critic.eval()
+
+    def on_epoch_end(self, epoch):
+        """
+        Called at the end of each epoch.
+        """
+
+        # LR scheduling updates
+        if self.lr_schedulers["critic"] is not None:
+            self.lr_schedulers["critic"].step()
+
+        if self.lr_schedulers["actor"] is not None:
+            self.lr_schedulers["actor"].step()
 
     def get_action(self, obs_dict, goal_dict=None):
         """

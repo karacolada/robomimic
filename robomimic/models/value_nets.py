@@ -613,7 +613,7 @@ class SharedRNNActionValueNetworks(RNN_MIMO_MLPs):
             mod = list(obs_dict.keys())[0]
             goal_dict = TensorUtils.unsqueeze_expand_at(goal_dict, size=obs_dict[mod].shape[1], dim=1)
         
-        outputs = super(SharedRNNActionValueNetwork, self).forward(obs=inputs, goal=goal_dict, rnn_init_state=rnn_init_state, return_state=return_state)
+        outputs = super(SharedRNNActionValueNetworks, self).forward(obs=inputs, goal=goal_dict, rnn_init_state=rnn_init_state, return_state=return_state)
         
         if return_state:
             outs, state = outputs
