@@ -943,29 +943,31 @@ class RNN_MIMO_MLPs(Module):
         rnn_output_dim = num_directions * rnn_hidden_dim
 
         self.per_step_nets = nn.ModuleList()
+        self.nets["mlp"] = nn.ModuleList()
+        self.nets["decoder"] = nn.ModuleList()
         self._has_mlp = (len(mlp_layer_dims) > 0)
-        for _ in range(self.ensemble_n):
+        for i in range(self.ensemble_n):
             if self._has_mlp:
-                self.nets["mlp"] = MLP(
+                self.nets["mlp"].append(MLP(
                     input_dim=rnn_output_dim,
                     output_dim=mlp_layer_dims[-1],
                     layer_dims=mlp_layer_dims[:-1],
                     output_activation=mlp_activation,
                     layer_func=mlp_layer_func
-                )
-                self.nets["decoder"] = ObservationDecoder(
+                ))
+                self.nets["decoder"].append(ObservationDecoder(
                     decode_shapes=self.output_shapes,
                     input_feat_dim=mlp_layer_dims[-1],
-                )
+                ))
                 if self.per_step:
-                    self.per_step_nets.append(Sequential(self.nets["mlp"], self.nets["decoder"]))
+                    self.per_step_nets.append(Sequential(self.nets["mlp"][i], self.nets["decoder"][i]))
             else:
-                self.nets["decoder"] = ObservationDecoder(
+                self.nets["decoder"].append(ObservationDecoder(
                     decode_shapes=self.output_shapes,
                     input_feat_dim=rnn_output_dim,
-                )
+                ))
                 if self.per_step:
-                    self.per_step_nets.append(self.nets["decoder"])
+                    self.per_step_nets.append(self.nets["decoder"][i])
 
         # core network
         self.nets["rnn"] = RNN_Base(
