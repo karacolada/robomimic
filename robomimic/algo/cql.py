@@ -1200,6 +1200,10 @@ class CQL_RNN(CQL):
         for k in self.optimizers:
             keys = [k]
             optims = [self.optimizers[k]]
+            if not self.algo_config.critic.rnn.shared and k == "critic":
+                # account for critic having one optimizer per ensemble member
+                keys = ["{}{}".format(k, critic_ind) for critic_ind in range(len(self.nets["critic"]))]
+                optims = self.optimizers[k]
             for kp, optimizer in zip(keys, optims):
                 for i, param_group in enumerate(optimizer.param_groups):
                     loss_log["Optimizer/{}{}_lr".format(kp, i)] = param_group["lr"]
@@ -1257,8 +1261,13 @@ class CQL_RNN(CQL):
         """
 
         # LR scheduling updates
-        if self.lr_schedulers["critic"] is not None:
-            self.lr_schedulers["critic"].step()
+        if self.algo_config.critic.rnn.shared:
+            if self.lr_schedulers["critic"] is not None:
+                self.lr_schedulers["critic"].step()
+        else:
+            for lr_sc in self.lr_schedulers["critic"]:
+                if lr_sc is not None:
+                    lr_sc.step()
 
         if self.lr_schedulers["actor"] is not None:
             self.lr_schedulers["actor"].step()
