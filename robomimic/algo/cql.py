@@ -34,6 +34,8 @@ def algo_config_to_class(algo_config):
     """
     if algo_config.critic.rnn.enabled:
         return CQL_RNN, {}
+    if algo_config.ext.enabled:
+        return CQL_EXT, {}
     return CQL, {}
 
 
@@ -1343,13 +1345,16 @@ class CQL_EXT(CQL):
     CQL training with history-extended state.
     """
     def __init__(self, **kwargs):
-        # run super init first
         super().__init__(**kwargs)
+        self.obs_history = {"actor": {}, "critic": {}}
+
+    def _create_networks(self):
         # extend obs shapes
         obs_shapes = OrderedDict()
         for k in self.obs_shapes.keys():
             obs_shapes[k] = [self.algo_config.ext.history_length] + self.obs_shapes[k]
         self.obs_shapes = obs_shapes
+        return super()._create_networks()
 
     def process_batch_for_training(self, batch):
         """
@@ -1373,21 +1378,13 @@ class CQL_EXT(CQL):
         # keep obs sequences
         input_batch["obs"] = batch["obs"]
         input_batch["next_obs"] = batch["next_obs"]
-        #input_batch["next_obs"] = {k: batch["next_obs"][k][:, self.n_step - 1, :] for k in batch["next_obs"]}
         # remove temporal batches for all others
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
-        input_batch["actions"] = batch["actions"][:, 0, :]
+        input_batch["actions"] = batch["actions"][:, -1, :]
 
-        # note: ensure scalar signals (rewards, done) retain last dimension of 1 to be compatible with model outputs
+        input_batch["rewards"] = batch["rewards"][:, -1].unsqueeze(1)
 
-        # single timestep reward is discounted sum of intermediate rewards in sequence
-        reward_seq = batch["rewards"][:, :self.n_step]
-        discounts = torch.pow(self.algo_config.discount, torch.arange(self.n_step).float()).unsqueeze(0)
-        input_batch["rewards"] = (reward_seq * discounts).sum(dim=1).unsqueeze(1)
-
-        # consider this n-step seqeunce done if any intermediate dones are present
-        done_seq = batch["dones"][:, :self.n_step]
-        input_batch["dones"] = (done_seq.sum(dim=1) > 0).float().unsqueeze(1)
+        input_batch["dones"] = batch["dones"][:, -1].unsqueeze(1)
 
         return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
     
