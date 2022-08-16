@@ -419,6 +419,9 @@ class CQL(PolicyAlgo, ValueAlgo):
             done_mask_batch = 1. - batch["dones"]
             info["done_masks"] = done_mask_batch
             q_target = batch["rewards"] + done_mask_batch * self.discount * target_qs
+            info["reward_mean"] = batch["rewards"].mean()
+            info["target_qs_mean"] = target_qs.mean()
+            info["q_target_mean"] = q_target.mean()
 
         # Calculate CQL stuff
         cql_random_actions = torch.FloatTensor(N, B, A).uniform_(-1., 1.).to(self.device)                           # shape (N, B, A)
@@ -590,6 +593,9 @@ class CQL(PolicyAlgo, ValueAlgo):
         loss_log = OrderedDict()
         if "done_masks" in info:
             loss_log["Critic/Done_Mask_Percentage"] = 100. * torch.mean(info["done_masks"]).item()
+            loss_log["Critic/Reward_Mean"] = info["reward_mean"]
+            loss_log["Critic/Target_Qs_Mean"] = info["target_qs_mean"]
+            loss_log["Critic/Q_Target_Mean"] = info["q_target_mean"]
         if "critic/q_targets" in info:
             loss_log["Critic/Q_Targets"] = info["critic/q_targets"].mean().item()
         loss_log["Loss"] = 0.
