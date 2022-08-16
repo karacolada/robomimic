@@ -449,6 +449,11 @@ class CQL(PolicyAlgo, ValueAlgo):
         for i, (q_pred, q_cat) in enumerate(zip(q_preds, q_cats)):
             # Calculate td error loss
             td_loss = self.td_loss_fcn(q_pred, q_target)
+            
+            # additional logging
+            info[f"critic/critic{i+1}_td_loss"] = td_loss.item()
+            info[f"critic/critic{i+1}_q_pred"] = q_pred.mean().item()
+            
             # Calculate cql loss
             cql_loss = cql_weight * (self.min_q_weight * (torch.logsumexp(q_cat, dim=1).mean() - q_pred.mean()) -
                                      self.target_q_gap)
@@ -592,11 +597,14 @@ class CQL(PolicyAlgo, ValueAlgo):
             loss_log["Critic/Critic{}_Loss".format(critic_ind + 1)] = info["critic/critic{}_loss".format(critic_ind + 1)].item()
             if "critic/critic{}_grad_norms".format(critic_ind + 1) in info:
                 loss_log["Critic/Critic{}_Grad_Norms".format(critic_ind + 1)] = info["critic/critic{}_grad_norms".format(critic_ind + 1)]
+            loss_log["Critic/Critic{}_TD_Loss".format(critic_ind + 1)] = info["critic/critic{}_td_loss".format(critic_ind + 1)]
+            loss_log["Critic/Critic{}_Q_Pred_Mean".format(critic_ind + 1)] = info["critic/critic{}_q_pred".format(critic_ind + 1)]            
             loss_log["Loss"] += loss_log["Critic/Critic{}_Loss".format(critic_ind + 1)]
         if "critic/cql_weight_loss" in info:
             loss_log["Critic/CQL_Weight"] = info["critic/cql_weight"]
             loss_log["Critic/CQL_Weight_Loss"] = info["critic/cql_weight_loss"]
             loss_log["Critic/CQL_Grad_Norms"] = info["critic/cql_grad_norms"]
+            
         return loss_log
 
     def _log_actor_info(self, info):
