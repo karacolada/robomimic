@@ -419,9 +419,9 @@ class CQL(PolicyAlgo, ValueAlgo):
             done_mask_batch = 1. - batch["dones"]
             info["done_masks"] = done_mask_batch
             q_target = batch["rewards"] + done_mask_batch * self.discount * target_qs
-            info["reward_mean"] = batch["rewards"].mean()
-            info["target_qs_mean"] = target_qs.mean()
-            info["q_target_mean"] = q_target.mean()
+            info["reward_mean"] = batch["rewards"].mean().item()
+            info["target_qs_mean"] = target_qs.mean().item()
+            info["q_target_mean"] = q_target.mean().item()
 
         # Calculate CQL stuff
         cql_random_actions = torch.FloatTensor(N, B, A).uniform_(-1., 1.).to(self.device)                           # shape (N, B, A)
