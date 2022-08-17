@@ -432,7 +432,7 @@ class CQL(PolicyAlgo, ValueAlgo):
         cql_next_log_prob = cql_next_log_prob.squeeze(dim=-1).permute(1, 0).detach()                                # shape (B, N)
         q_cats = []     # Each entry shape will be (B, N)
 
-        for critic, q_pred in zip(self.nets["critic"], q_preds):
+        for i, (critic, q_pred) in enumerate(zip(self.nets["critic"], q_preds)):
             # Compose Q values over all sampled actions (importance sampled)
             q_rand = self._get_qs_from_actions(obs_dict=batch["obs"], actions=cql_random_actions.permute(1, 0, 2), goal_dict=batch["goal_obs"], q_net=critic)
             q_curr = self._get_qs_from_actions(obs_dict=batch["obs"], actions=cql_curr_actions.permute(1, 0, 2), goal_dict=batch["goal_obs"], q_net=critic)
@@ -443,6 +443,19 @@ class CQL(PolicyAlgo, ValueAlgo):
                 q_curr - cql_curr_log_prob,
             ], dim=1)           # shape (B, 3 * N)
             q_cats.append(q_cat)
+            # additional logging
+            info[f"critic/critic{i+1}_q_rand"] = q_rand.mean().item()
+            info[f"critic/critic{i+1}_q_next"] = q_next.mean().item()
+            info[f"critic/critic{i+1}_q_curr"] = q_curr.mean().item()
+            low_idx = 0
+            high_idx = q_rand.shape[1]
+            info[f"critic/critic{i+1}_q_rand_minus_logprobs"] = q_cat[:, low_idx:high_idx].mean().item()
+            low_idx = high_idx
+            high_idx = low_idx + q_next.shape[1]
+            info[f"critic/critic{i+1}_q_next_minus_logprobs"] = q_cat[:, low_idx:high_idx].mean().item()
+            low_idx = high_idx
+            high_idx = low_idx + q_curr.shape[1]
+            info[f"critic/critic{i+1}_q_curr_minus_logprobs"] = q_cat[:, low_idx:high_idx].mean().item()
 
         # Calculate the losses for all critics
         cql_losses = []
@@ -458,8 +471,13 @@ class CQL(PolicyAlgo, ValueAlgo):
             info[f"critic/critic{i+1}_q_pred"] = q_pred.mean().item()
             
             # Calculate cql loss
-            cql_loss = cql_weight * (self.min_q_weight * (torch.logsumexp(q_cat, dim=1).mean() - q_pred.mean()) -
+            # additional logging
+            lse_mean = torch.logsumexp(q_cat, dim=1).mean()
+            info[f"critic/critic{i+1}_lse"] = lse_mean.item()
+            cql_loss = cql_weight * (self.min_q_weight * (lse_mean - q_pred.mean()) -
                                      self.target_q_gap)
+            #cql_loss = cql_weight * (self.min_q_weight * (torch.logsumexp(q_cat, dim=1).mean() - q_pred.mean()) -
+            #                         self.target_q_gap)
             cql_losses.append(cql_loss)
             # Calculate total loss
             loss = td_loss + cql_loss
@@ -603,8 +621,17 @@ class CQL(PolicyAlgo, ValueAlgo):
             loss_log["Critic/Critic{}_Loss".format(critic_ind + 1)] = info["critic/critic{}_loss".format(critic_ind + 1)].item()
             if "critic/critic{}_grad_norms".format(critic_ind + 1) in info:
                 loss_log["Critic/Critic{}_Grad_Norms".format(critic_ind + 1)] = info["critic/critic{}_grad_norms".format(critic_ind + 1)]
+            
             loss_log["Critic/Critic{}_TD_Loss".format(critic_ind + 1)] = info["critic/critic{}_td_loss".format(critic_ind + 1)]
-            loss_log["Critic/Critic{}_Q_Pred_Mean".format(critic_ind + 1)] = info["critic/critic{}_q_pred".format(critic_ind + 1)]            
+            loss_log["Critic/Critic{}_Q_Pred_Mean".format(critic_ind + 1)] = info["critic/critic{}_q_pred".format(critic_ind + 1)]
+            loss_log["Critic/Critic{}_LSE".format(critic_ind + 1)] = info["critic/critic{}_lse".format(critic_ind + 1)]  
+            loss_log["Critic/Critic{}_Q_Rand".format(critic_ind + 1)] = info["critic/critic{}_q_rand".format(critic_ind + 1)]
+            loss_log["Critic/Critic{}_Q_Next".format(critic_ind + 1)] = info["critic/critic{}_q_next".format(critic_ind + 1)]
+            loss_log["Critic/Critic{}_Q_Curr".format(critic_ind + 1)] = info["critic/critic{}_q_curr".format(critic_ind + 1)]
+            loss_log["Critic/Critic{}_Q_Rand_minus_Logprobs".format(critic_ind + 1)] = info["critic/critic{}_q_rand_minus_logprobs".format(critic_ind + 1)]
+            loss_log["Critic/Critic{}_Q_Next_minus_Logprobs".format(critic_ind + 1)] = info["critic/critic{}_q_next_minus_logprobs".format(critic_ind + 1)]
+            loss_log["Critic/Critic{}_Q_Curr_minus_Logprobs".format(critic_ind + 1)] = info["critic/critic{}_q_curr_minus_logprobs".format(critic_ind + 1)]
+                        
             loss_log["Loss"] += loss_log["Critic/Critic{}_Loss".format(critic_ind + 1)]
         if "critic/cql_weight_loss" in info:
             loss_log["Critic/CQL_Weight"] = info["critic/cql_weight"]
