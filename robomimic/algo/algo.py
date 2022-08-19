@@ -476,6 +476,14 @@ class RolloutPolicy(object):
         ac = self.policy.get_action(obs_dict=ob, goal_dict=goal)
         return TensorUtils.to_numpy(ac[0])
 
+    def get_value(self, ob, act, goal=None):
+        ob = self._prepare_observation(ob)
+        if goal is not None:
+            goal = self._prepare_observation(goal)
+        act = act.unsqueeze(0)
+        val = self.policy.get_state_action_value(obs_dict=ob, actions=act, goal_dict=goal)
+        return TensorUtils.to_numpy(val[0])
+
 class ParallelRolloutPolicy(RolloutPolicy):
     """
     Wraps @Algo object to make it easy to run policies in a rollout loop with parallel environments (gymgrasp).
