@@ -127,3 +127,6 @@ robomimic/scripts/runs
 # vscode project settings
 .vscode
 notes.md
+
+# wandb
+wandb/
