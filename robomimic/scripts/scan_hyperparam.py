@@ -55,9 +55,6 @@ sweep_config_vanilla = {
         "algo.optim_params.actor.regularization.L2": {
             "values": [0.00, 0.01, 0.1]
         },  # L2 regularization strength, weight decay
-        "algo.n_step": {
-            "values": [1, 2, 4, 10, 30]
-        },
         "algo.actor.max_gradient_norm": {
             "values": [None, 0.5]
         }, # L2 gradient clipping for actor, probably shouldn't use with weight decay i.e. L2 regularisation
@@ -76,6 +73,9 @@ sweep_config_vanilla = {
         #"train.hdf5_normalize_obs": {
         #    "values": [True, False]
         #},
+        "train.seq_length": {
+            "values": [1, 2, 4, 10, 30]
+        },  # will be applied to n_step
         "train.batch_size": {
             "values": [100, 512, 1024]
         }
@@ -290,6 +290,8 @@ def apply_wandb_conf(config, wandb_config):
         wandb_config["algo.critic.rnn.horizon"] = wandb_config["train.seq_length"]
     elif variant == "ext":
         wandb_config["algo.ext.history_length"] = wandb_config["train.seq_length"]
+    elif variant == "vanilla":
+        wandb_config["algo.n_step"] = wandb_config["train.seq_length"]
     # adjust outdir
     wandb_config["train.output_dir"] = config["train"]["output_dir"] + "-" + str(int(time.time()))
     # adjust config
