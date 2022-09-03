@@ -11,7 +11,7 @@ import robomimic.envs.env_base as EB
 import robomimic.utils.obs_utils as ObsUtils
 
 from gym_grasp.utils.rlgames_utils import get_rlgames_env_creator
-from gym_grasp.utils.utils import  set_seed
+from gym_grasp.utils.config import  set_seed
 
 import torch
 

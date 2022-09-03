@@ -1,16 +1,16 @@
-from os import sync
-from turtle import update
 import wandb
 import isaacgym
 import json
 import traceback
+import time
 
 from robomimic.config import config_factory
 import robomimic.utils.torch_utils as TorchUtils
 from robomimic.scripts.train import train
 
-base_config_path = "/home/karacol/git/learning-from-demonstrations/cfg/gen_configs/cql_lift_ph.json"
+base_config_path = "/home/user/moraw/learning-from-demonstrations/cfg/cql_eval/sweep_task_OpenDoor.json"
 variant = "vanilla"  # one of vanilla, rnn, ext
+task = "OpenDoor"
 
 sweep_config_vanilla = {
     "name": "thesis-hyperparam-sweep-vanilla",
@@ -73,9 +73,9 @@ sweep_config_vanilla = {
         "algo.critic.target_q_gap":{
             "values": [1.0, 5.0, 10.0]
         },
-        "train.hdf5_normalize_obs": {
-            "values": [True, False]
-        },
+        #"train.hdf5_normalize_obs": {
+        #    "values": [True, False]
+        #},
         "train.batch_size": {
             "values": [100, 512, 1024]
         }
@@ -167,9 +167,9 @@ sweep_config_rnn = {
         "train.seq_length": {
             "values": [2, 4, 10, 30]
         },
-        "train.hdf5_normalize_obs": {
-            "values": [True, False]
-        },
+        #"train.hdf5_normalize_obs": {
+        #    "values": [True, False]
+        #},
         "train.batch_size": {
             "values": [100, 512, 1024]
         }
@@ -237,9 +237,9 @@ sweep_config_ext = {
         "train.seq_length": {
             "values": [2, 4, 10, 30]
         },
-        "train.hdf5_normalize_obs": {
-            "values": [True, False]
-        },
+        #"train.hdf5_normalize_obs": {
+        #    "values": [True, False]
+        #},
         "train.batch_size": {
             "values": [100, 512, 1024]
         }
@@ -290,6 +290,8 @@ def apply_wandb_conf(config, wandb_config):
         wandb_config["algo.critic.rnn.horizon"] = wandb_config["train.seq_length"]
     elif variant == "ext":
         wandb_config["algo.ext.history_length"] = wandb_config["train.seq_length"]
+    # adjust outdir
+    wandb_config["train.output_dir"] = wandb_config["train.output_dir"] + "-" + str(int(time.time()))
     # adjust config
     wandb_config = nested_wandb(wandb_config)
     with config.values_unlocked():
@@ -297,7 +299,7 @@ def apply_wandb_conf(config, wandb_config):
     return config
 
 def wrap_train():
-    with wandb.init(project=f"thesis-cql-{variant}", sync_tensorboard=True) as run:
+    with wandb.init(sync_tensorboard=True) as run:
         ext_cfg = json.load(open(base_config_path, 'r'))
         config = config_factory(ext_cfg["algo_name"])
         # update config with external json - this will throw errors if
@@ -326,11 +328,11 @@ def wrap_train():
 
 if __name__ == "__main__":
     if variant == "vanilla":
-        sweep_id = wandb.sweep(sweep_config_vanilla)
+        sweep_id = wandb.sweep(sweep_config_vanilla, project=f"thesis-cql-{variant}-{task}")
     elif variant == "rnn":
-        sweep_id = wandb.sweep(sweep_config_rnn)
+        sweep_id = wandb.sweep(sweep_config_rnn, project=f"thesis-cql-{variant}-{task}")
     elif variant == "ext":
-        sweep_id = wandb.sweep(sweep_config_ext)
+        sweep_id = wandb.sweep(sweep_config_ext, project=f"thesis-cql-{variant}-{task}")
     else:
         print("Error: selected variant {}, need to choose from vanilla, rnn, ext.".format(variant))
         exit()
