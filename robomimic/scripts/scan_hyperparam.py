@@ -291,7 +291,7 @@ def apply_wandb_conf(config, wandb_config):
     elif variant == "ext":
         wandb_config["algo.ext.history_length"] = wandb_config["train.seq_length"]
     # adjust outdir
-    wandb_config["train.output_dir"] = wandb_config["train.output_dir"] + "-" + str(int(time.time()))
+    wandb_config["train.output_dir"] = config["train.output_dir"] + "-" + str(int(time.time()))
     # adjust config
     wandb_config = nested_wandb(wandb_config)
     with config.values_unlocked():
