@@ -128,6 +128,9 @@ sweep_config_rnn = {
         "algo.actor.max_gradient_norm": {
             "values": [None, 0.5]
         },
+        "algo.actor.net.rnn.enabled": {
+            "values": [True, False]
+        },
         "algo.actor.net.rnn.hidden_dim": {
             "values": [256, 512]
         },
