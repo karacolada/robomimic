@@ -477,6 +477,18 @@ class RolloutPolicy(object):
         return TensorUtils.to_numpy(ac[0])
 
     def get_value(self, ob, act, goal=None):
+        """
+        Get state action value from raw observation dict, maybe goal dict and action.
+        Only works for ValueAlgo instances.
+
+        Args:
+            ob (dict): single observation dictionary from environment (no batch dimension)
+            act (torch.Tensor): action tensor, no batch dimension
+            goal (dict, optional): goal observation. Defaults to None.
+
+        Returns:
+            np.array: value of taking action act in state ob
+        """
         ob = self._prepare_observation(ob)
         if goal is not None:
             goal = self._prepare_observation(goal)
@@ -524,3 +536,23 @@ class ParallelRolloutPolicy(RolloutPolicy):
             goal = self._prepare_observation(goal)
         ac = self.policy.get_action(obs_dict=ob, goal_dict=goal)
         return TensorUtils.to_numpy(ac)
+
+    def get_value(self, ob, act, goal=None):
+        """
+        Get state action value from raw observation dict, maybe goal dict and action.
+        Only works for ValueAlgo instances.
+
+        Args:
+            ob (dict): single observation dictionary from environment (no batch dimension)
+            act (torch.Tensor): action tensor, no batch dimension
+            goal (dict, optional): goal observation. Defaults to None.
+
+        Returns:
+            np.array: value of taking action act in state ob
+        """
+        ob = self._prepare_observation(ob)
+        if goal is not None:
+            goal = self._prepare_observation(goal)
+        act = act.unsqueeze(0)
+        val = self.policy.get_state_action_value(obs_dict=ob, actions=act, goal_dict=goal)
+        return TensorUtils.to_numpy(val)
