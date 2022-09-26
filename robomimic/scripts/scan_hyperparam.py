@@ -329,13 +329,14 @@ def wrap_train():
         print(res_str)
 
 if __name__ == "__main__":
-    if variant == "vanilla":
-        sweep_id = wandb.sweep(sweep_config_vanilla, project=f"thesis-cql-{variant}-{task}")
-    elif variant == "rnn":
-        sweep_id = wandb.sweep(sweep_config_rnn, project=f"thesis-cql-{variant}-{task}")
-    elif variant == "ext":
-        sweep_id = wandb.sweep(sweep_config_ext, project=f"thesis-cql-{variant}-{task}")
-    else:
-        print("Error: selected variant {}, need to choose from vanilla, rnn, ext.".format(variant))
-        exit()
-    wandb.agent(sweep_id, function=wrap_train, count=50)
+    #if variant == "vanilla":
+    #    sweep_id = wandb.sweep(sweep_config_vanilla, project=f"thesis-cql-{variant}-{task}")
+    #elif variant == "rnn":
+    #    sweep_id = wandb.sweep(sweep_config_rnn, project=f"thesis-cql-{variant}-{task}")
+    #elif variant == "ext":
+    #    sweep_id = wandb.sweep(sweep_config_ext, project=f"thesis-cql-{variant}-{task}")
+    #else:
+    #    print("Error: selected variant {}, need to choose from vanilla, rnn, ext.".format(variant))
+    #    exit()
+    #wandb.agent(sweep_id, function=wrap_train, count=50)
+    wrap_train()
