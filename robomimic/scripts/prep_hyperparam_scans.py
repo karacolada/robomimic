@@ -10,8 +10,9 @@ import robomimic.utils.torch_utils as TorchUtils
 from robomimic.scripts.train import train
 
 sweep_config_vanilla = {
-    "name": "thesis-hyperparam-sweep-vanilla",
+    "name": "sweep-vanilla",
     "method": "random",
+    "program": "scan_hyperparam.py",
     "parameters": {
         "algo.optim_params.critic.learning_rate.initial": {
             "values": [1e-5, 1e-4, 1e-3, 1e-2, 3e-5, 3e-4, 3e-3, 3e-2]
@@ -80,8 +81,9 @@ sweep_config_vanilla = {
 }
 
 sweep_config_rnn = {
-    "name": "thesis-hyperparam-sweep-rnn",
+    "name": "sweep-rnn",
     "method": "random",
+    "program": "scan_hyperparam.py",    
     "parameters": {
         "algo.optim_params.critic.learning_rate.initial": {
             "values": [1e-5, 1e-4, 1e-3, 1e-2, 3e-5, 3e-4, 3e-3, 3e-2]
@@ -174,8 +176,9 @@ sweep_config_rnn = {
 }
 
 sweep_config_ext = {
-    "name": "thesis-hyperparam-sweep-ext",
+    "name": "sweep-ext",
     "method": "random",
+    "program": "scan_hyperparam.py",
     "parameters": {
         "algo.optim_params.critic.learning_rate.initial": {
             "values": [1e-5, 1e-4, 1e-3, 1e-2, 3e-5, 3e-4, 3e-3, 3e-2]
@@ -243,6 +246,18 @@ sweep_config_ext = {
     }
 }
 
+def register_sweep(variant, project):
+    if variant == "vanilla":
+        sweep_id = wandb.sweep(sweep_config_vanilla, project=project)
+    elif variant == "rnn":
+        sweep_id = wandb.sweep(sweep_config_rnn, project=project)
+    elif variant == "ext":
+        sweep_id = wandb.sweep(sweep_config_ext, project=project)
+    else:
+        print("Error: selected variant {}, need to choose from vanilla, rnn, ext.".format(args.variant))
+        exit()
+    print(sweep_id)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
@@ -261,13 +276,5 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    if args.variant == "vanilla":
-        sweep_id = wandb.sweep(sweep_config_vanilla, project=f"thesis-human-{args.task}-{args.variant}")
-    elif args.variant == "rnn":
-        sweep_id = wandb.sweep(sweep_config_rnn, project=f"thesis-human-{args.task}-{args.variant}")
-    elif args.variant == "ext":
-        sweep_id = wandb.sweep(sweep_config_ext, project=f"thesis-human-{args.task}-{args.variant}")
-    else:
-        print("Error: selected variant {}, need to choose from vanilla, rnn, ext.".format(args.variant))
-        exit()
-    print(sweep_id)
+    project = f"thesis-human-{args.task}"
+    register_sweep(args.variant, project)
