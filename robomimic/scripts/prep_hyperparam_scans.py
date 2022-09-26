@@ -54,13 +54,13 @@ sweep_config_vanilla = {
             "values": [0.00, 0.01, 0.1]
         },  # L2 regularization strength, weight decay
         "algo.actor.max_gradient_norm": {
-            "values": [None, 0.5]
+            "values": [-1, 0.5]
         }, # L2 gradient clipping for actor, probably shouldn't use with weight decay i.e. L2 regularisation
         "algo.critic.use_huber": {
             "values": [True, False]
         },
         "algo.critic.max_gradient_norm": {
-            "values": [None, 0.5]
+            "values": [-1, 0.5]
         },
         "algo.critic.num_action_samples": {
             "values": [1, 2, 4, 10, 30]
@@ -125,7 +125,7 @@ sweep_config_rnn = {
             "values": [0.00, 0.01, 0.1]
         },  # L2 regularization strength, weight decay
         "algo.actor.max_gradient_norm": {
-            "values": [None, 0.5]
+            "values": [-1, 0.5]
         },
         "algo.actor.net.rnn.enabled": {
             "values": [True, False]
@@ -143,7 +143,7 @@ sweep_config_rnn = {
             "values": [True, False]
         },
         "algo.critic.max_gradient_norm": {
-            "values": [None, 0.5]
+            "values": [-1, 0.5]
         },
         "algo.critic.num_action_samples": {
             "values": [1, 2, 4, 10, 30]
@@ -220,13 +220,13 @@ sweep_config_ext = {
             "values": [0.00, 0.01, 0.1]
         },  # L2 regularization strength, weight decay
         "algo.actor.max_gradient_norm": {
-            "values": [None, 0.5]
+            "values": [-1, 0.5]
         }, # L2 gradient clipping for actor, probably shouldn't use with weight decay i.e. L2 regularisation
         "algo.critic.use_huber": {
             "values": [True, False]
         },
         "algo.critic.max_gradient_norm": {
-            "values": [None, 0.5]
+            "values": [-1, 0.5]
         },
         "algo.critic.num_action_samples": {
             "values": [1, 2, 4, 10, 30]

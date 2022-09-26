@@ -31,6 +31,10 @@ def nested_wandb(config):
     return new_wandb
 
 def apply_wandb_conf(config, wandb_config):
+    # clear up max_gradient_clipping
+    for m in ["actor", "critic"]:
+        if wandb_config[f"algo.{m}.max_gradient_norm"] == -1:
+            wandb_config[f"algo.{m}.max_gradient_norm"] = None
     # adjust layer dims
     for m in ["actor", "critic"]:
         layer_dims = [wandb_config.pop(f"algo.{m}.layer_{i}_dim") for i in [1, 2, 3]]
