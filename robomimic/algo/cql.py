@@ -1101,7 +1101,10 @@ class CQL_RNN(CQL):
             # We take the max over all samples if the number of action samples is > 1
             if self.algo_config.critic.num_action_samples > 1:
                 # Generate the target q values, using the backup from the next state
-                temp_actions = next_dist.rsample(sample_shape=(self.algo_config.critic.num_action_samples,)).permute(1, 0, 2, 3)  # shape (B, N, T, A)
+                temp_actions = next_dist.rsample(sample_shape=(self.algo_config.critic.num_action_samples,))  # shape (S, B, T, A) if recurrent actor, o/w (S, B*T, A)
+                if not self.algo_config.actor.net.rnn.enabled:  # unpack actions
+                    temp_actions = temp_actions.reshape(self.algo_config.critic.num_action_samples, B, T, -1)
+                temp_actions = temp_actions.permute(1, 0, 2, 3)  # shape (B, S, T, A)
                 if self.algo_config.critic.rnn.shared:
                     target_qs = self._get_qs_from_actions(obs_dict=batch["next_obs"], actions=temp_actions, goal_dict=batch["goal_obs"], q_net=self.nets["critic_target"])
                     target_qs = [t.permute(0, 2, 1).max(dim=2, keepdim=True)[0] for t in target_qs]  # shapes [(B, T, 1)]
@@ -1130,8 +1133,8 @@ class CQL_RNN(CQL):
         # Calculate CQL stuff
         cql_random_actions = torch.FloatTensor(N, B, T, A).uniform_(-1., 1.).to(self.device)                           # shape (N, B, T, A)
         cql_random_log_prob = np.log(0.5 ** A)
-        cql_curr_actions, cql_curr_log_prob = self._get_actions_and_log_prob(dist=curr_dist, sample_shape=(N,))     # shape (N, B, T, A) and (N, B, T, 1)
-        cql_next_actions, cql_next_log_prob = self._get_actions_and_log_prob(dist=next_dist, sample_shape=(N,))     # shape (N, B, T, A) and (N, B, T, 1)
+        cql_curr_actions, cql_curr_log_prob = self._get_actions_and_log_prob(dist=curr_dist, sample_shape=(N,))     # shape (N, B, T, A) and (N, B, T, 1) if recurrent actor, o/w (N, B*T, A) and (N, B*T, 1)
+        cql_next_actions, cql_next_log_prob = self._get_actions_and_log_prob(dist=next_dist, sample_shape=(N,))     # shape (N, B, T, A) and (N, B, T, 1) if recurrent actor, o/w (N, B*T, A) and (N, B*T, 1)
         if not self.algo_config.actor.net.rnn.enabled:  # unpack T dim in actions + logprobs
             cql_curr_actions = cql_curr_actions.reshape(N, B, T, -1)
             cql_curr_log_prob = cql_curr_log_prob.reshape(N, B, T, -1)
