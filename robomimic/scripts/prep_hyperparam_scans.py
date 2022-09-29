@@ -247,7 +247,7 @@ sweep_config_ext = {
 }
 
 def register_sweep(variant, task):
-    project = "test" #f"thesis-human-{task}"
+    project = f"thesis-human-{task}"
     if variant == "vanilla":
         sweep_cfg = sweep_config_vanilla
     elif variant == "rnn":
