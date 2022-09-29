@@ -61,6 +61,7 @@ class EnvGymGrasp(EB.EnvBase):
         self.env = create_gym_grasp_env()
         self.old_successes = self.env.successes
         self.task_name = kwargs["task_name"]
+        self.separate_obs = kwargs["task"]["task"].get("returnObsDict", False)  # for compatibility with older demos
 
     def step(self, action):
         """
@@ -120,9 +121,13 @@ class EnvGymGrasp(EB.EnvBase):
             assert self._current_obs is not None
             obs = self._current_obs
         ret = {}
-        obs = obs["obs_separate"]  # env returns dictionary {obs: <tensor of full obs>, obs_separate: {handPose: <tensor of handPose>, ...}}
-        for k in obs.keys():
-            ret[k] = obs[k].cpu()
+        if self.separate_obs:
+            obs = obs["obs_separate"]  # env returns dictionary {obs: <tensor of full obs>, obs_separate: {handPose: <tensor of handPose>, ...}}
+            for k in obs.keys():
+                ret[k] = obs[k].cpu()
+        else:  # older demo holds concatenated observations in key "obs"
+            for k in obs.keys():
+                ret[k] = obs[k].cpu()
         return ret
 
     def get_reward(self):

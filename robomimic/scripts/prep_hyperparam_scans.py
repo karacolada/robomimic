@@ -246,16 +246,20 @@ sweep_config_ext = {
     }
 }
 
-def register_sweep(variant, project):
+def register_sweep(variant, task):
+    project = "test" #f"thesis-human-{task}"
     if variant == "vanilla":
-        sweep_id = wandb.sweep(sweep_config_vanilla, project=project)
+        sweep_cfg = sweep_config_vanilla
     elif variant == "rnn":
-        sweep_id = wandb.sweep(sweep_config_rnn, project=project)
+        sweep_cfg = sweep_config_rnn
     elif variant == "ext":
-        sweep_id = wandb.sweep(sweep_config_ext, project=project)
+        sweep_cfg = sweep_config_ext
     else:
-        print("Error: selected variant {}, need to choose from vanilla, rnn, ext.".format(args.variant))
+        print("Error: selected variant {}, need to choose from vanilla, rnn, ext.".format(variant))
         exit()
+    if task == "OpenDrawer":  # not enough trajectories in dataset for batch size 1024
+        sweep_cfg["parameters"]["train.batch_size"]["values"].remove(1024)
+    sweep_id = wandb.sweep(sweep_cfg, project=project)
     print(sweep_id)
 
 if __name__ == "__main__":
@@ -276,5 +280,4 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    project = f"thesis-human-{args.task}"
-    register_sweep(args.variant, project)
+    register_sweep(args.variant, args.task)

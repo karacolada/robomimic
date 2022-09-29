@@ -30,7 +30,7 @@ def nested_wandb(config):
             recursive_init(new_wandb, nested_k, v)
     return new_wandb
 
-def apply_wandb_conf(config, wandb_config):
+def apply_wandb_conf(config, wandb_config, run_id):
     # clear up max_gradient_clipping
     for m in ["actor", "critic"]:
         if wandb_config[f"algo.{m}.max_gradient_norm"] == -1:
@@ -61,8 +61,8 @@ def apply_wandb_conf(config, wandb_config):
         wandb_config["algo.ext.history_length"] = wandb_config["train.seq_length"]
     elif variant == "vanilla":
         wandb_config["algo.n_step"] = wandb_config["train.seq_length"]
-    # adjust outdir
-    wandb_config["train.output_dir"] = config["train"]["output_dir"] + "-" + str(int(time.time()))
+    # adjust log directory
+    wandb_config["experiment.name"] = config["experiment"]["name"] + "_" + run_id
     # adjust config
     wandb_config = nested_wandb(wandb_config)
     with config.values_unlocked():
@@ -82,7 +82,7 @@ def wrap_train():
         device = TorchUtils.get_torch_device(try_to_use_cuda=config.train.cuda, id=config.train.cuda_id)
 
         # wandb config stuff
-        config = apply_wandb_conf(config, wandb.config._as_dict())
+        config = apply_wandb_conf(config, wandb.config._as_dict(), run.id)
 
         # lock config to prevent further modifications and ensure missing keys raise errors
         config.lock()
