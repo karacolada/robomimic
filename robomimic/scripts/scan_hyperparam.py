@@ -48,6 +48,9 @@ def apply_wandb_conf(config, wandb_config, run_id):
         wandb_config["algo.ext.history_length"] = wandb_config["train.seq_length"]
     elif variant == "vanilla":
         wandb_config["algo.n_step"] = wandb_config["train.seq_length"]
+    # observation normalisation does not work with validation
+    if wandb_config["train.hdf5_normalize_obs"]:
+        wandb_config["experiment.validate"] = False
     # adjust log directory
     wandb_config["experiment.name"] = config["experiment"]["name"] + "_" + run_id
     # adjust config

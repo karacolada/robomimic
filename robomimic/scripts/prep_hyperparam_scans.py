@@ -57,7 +57,8 @@ sweep_config_vanilla = {
             "values": [1.0, 5.0, 10.0]
         },
         "train.hdf5_normalize_obs": {
-            "values": [True, False]
+            "values": [True, False],
+            "probabilities": [0.2, 0.8]  # low probability bc. we need to disable validation
         },
         "train.seq_length": {
             "values": [1, 2, 4, 10, 30]
@@ -143,7 +144,8 @@ sweep_config_rnn = {
             "values": [2, 4, 10, 30]
         },
         "train.hdf5_normalize_obs": {
-            "values": [True, False]
+            "values": [True, False],
+            "probabilities": [0.2, 0.8]  # low probability bc. we need to disable validation
         },
         "train.batch_size": {
             "values": [100, 512, 1024]
@@ -202,7 +204,8 @@ sweep_config_ext = {
             "values": [2, 4, 10, 30]
         },
         "train.hdf5_normalize_obs": {
-            "values": [True, False]
+            "values": [True, False],
+            "probabilities": [0.2, 0.8]  # low probability bc. we need to disable validation
         },
         "train.batch_size": {
             "values": [100, 512, 1024]
