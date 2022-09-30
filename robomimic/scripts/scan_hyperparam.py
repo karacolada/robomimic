@@ -40,6 +40,14 @@ def apply_wandb_conf(config, wandb_config, run_id):
         decay_factor = wandb_config[f"algo.optim_params.{m}.learning_rate.decay_factor"]
         if decay_factor > 0:
             wandb_config[f"algo.optim_params.{m}.learning_rate.epoch_schedule"] = [200, 400, 600, 800]
+    # RNN drop MLP
+    if variant == "rnn":
+        actor_remove_mlp = wandb_config.pop("algo.actor.net.rnn.remove_mlp")
+        critic_remove_mlp = wandb_config.pop("algo.critic.rnn.remove_mlp")
+        if critic_remove_mlp:
+            wandb_config["algo.critic.layer_dims"] = ()
+        if actor_remove_mlp and wandb_config["algo.actor.net.rnn.enabled"]:
+            wandb_config["algo.actor.layer_dims"] = ()
     # sequence length
     if variant == "rnn":
         wandb_config["algo.actor.net.rnn.horizon"] = wandb_config["train.seq_length"]
