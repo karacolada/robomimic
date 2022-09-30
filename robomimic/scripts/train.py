@@ -91,6 +91,7 @@ def train(config, device):
         env_meta["env_kwargs"]["task"]["reset"]["maxEpisodeLength"] = config.experiment.rollout.horizon
         env_meta["env_kwargs"]["task"]["env"]["numEnvs"] = config.experiment.rollout.n
         env_meta["env_kwargs"]["graphics_device_id"] = config.train.cuda_id
+        env_meta["env_kwargs"]["task"]["train_dir"] = os.path.dirname(log_dir)
         if config.experiment.gymgrasp_recording:
             camera_0 = dict(type="rgb",
                             pos=[ -0.5, 0, 1.3 ],
@@ -104,12 +105,6 @@ def train(config, device):
                            convert_to_voxelgrid=False,
                            camera0=camera_0)
             env_meta["env_kwargs"]["task"]["cameras"] = cameras
-            # remove old reccordings if present
-            old_loc = f"runs/{env_meta['env_kwargs']['task_name']}/recordings"
-            try:
-                os.rmdir(old_loc)
-            except:
-                pass
 
     # create environment
     envs = OrderedDict()
@@ -263,6 +258,7 @@ def train(config, device):
 
             # wrap model as a RolloutPolicy to prepare for rollouts
             if env_meta["type"] == EnvType.GYMGRASP_TYPE:
+                gymgrasp_recording_dir = os.path.join(os.path.dirname(log_dir), f"{env_meta['env_kwargs']['task_name']}/recordings")
                 rollout_model = ParallelRolloutPolicy(model, obs_normalization_stats=obs_normalization_stats)
             else:
                 rollout_model = RolloutPolicy(model, obs_normalization_stats=obs_normalization_stats)
@@ -276,6 +272,7 @@ def train(config, device):
                 num_episodes=num_episodes,
                 render=False,
                 video_dir=video_dir if config.experiment.render_video else None,
+                gymgrasp_recording_dir=gymgrasp_recording_dir if env_meta["type"] == EnvType.GYMGRASP_TYPE else None,
                 epoch=epoch,
                 video_skip=config.experiment.get("video_skip", 5),
                 terminate_on_success=config.experiment.rollout.terminate_on_success,
@@ -312,11 +309,10 @@ def train(config, device):
 
             # Move recordings
             if config.experiment.gymgrasp_recording:
-                old_loc = f"runs/{env_meta['env_kwargs']['task_name']}/recordings"
                 new_loc = os.path.join(video_dir, epoch_ckpt_name)
                 os.mkdir(new_loc)
-                os.rename(old_loc, new_loc)
-                os.mkdir(old_loc)
+                os.rename(gymgrasp_recording_dir, new_loc)
+                os.mkdir(gymgrasp_recording_dir)
 
         # Only keep saved videos if the ckpt should be saved (but not because of validation score)
         should_save_video = (should_save_ckpt and (ckpt_reason != "valid")) or config.experiment.keep_all_videos

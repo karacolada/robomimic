@@ -264,6 +264,7 @@ def run_parallel_rollouts(
         video_writer=None,
         video_skip=5,
         terminate_on_success=True,
+        gymgrasp_recording_dir="",
     ):
     """
     Runs parallel rollouts in an environment with the current network parameters.
@@ -288,11 +289,13 @@ def run_parallel_rollouts(
             in contrast to run_rollout, it is True by default as setting it to False might lead to more successes
             than rollouts are being run and thus success rates of > 1.
 
+        gymgrasp_recording_dir (str): path to gymgrasp recordings            
+
     Returns:
         results (dict): dictionary containing return, success rate, etc.
     """
     assert isinstance(policy, ParallelRolloutPolicy)
-    assert isinstance(env, EnvGymGrasp)
+    assert isinstance(env, EnvGymGrasp), "parallel rollouts are currently only implemented for GymGrasp environments"
 
     policy.start_episode()
 
@@ -341,7 +344,7 @@ def run_parallel_rollouts(
                 horizons[success_changes] = step_i + 1
                 if success_changes.flatten().shape[0] > 0:
                     for e in success_changes.flatten():
-                        new_videos = glob.glob(f"runs/{env.task_name}/recordings/recording_env_{e}_*.mp4")
+                        new_videos = glob.glob(os.path.join(gymgrasp_recording_dir, f"recording_env_{e}_*.mp4"))
                         for v in new_videos:
                             new_v = os.path.join(os.path.dirname(v), "valid_"+os.path.basename(v))
                             os.rename(v, new_v)
@@ -363,12 +366,12 @@ def run_parallel_rollouts(
 
     invalid_videos = []
     for e in torch.nonzero(env.successes["task"]).flatten():  # leftover videos of successful envs
-        invalid_videos += glob.glob(f"runs/{env.task_name}/recordings/recording_env_{e}_*.mp4")
+        invalid_videos += glob.glob(os.path.join(gymgrasp_recording_dir, f"recording_env_{e}_*.mp4"))
     for v in invalid_videos:
         new_v = os.path.join(os.path.dirname(v), "invalid_"+os.path.basename(v))
         os.rename(v, new_v)
     # leftover videos of unsuccessful envs
-    valid_videos = glob.glob(f"runs/{env.task_name}/recordings/recording_env_*.mp4")
+    valid_videos = glob.glob(os.path.join(gymgrasp_recording_dir, f"recording_env_*.mp4"))
     for v in valid_videos:
         new_v = os.path.join(os.path.dirname(v), "valid_"+os.path.basename(v))
         os.rename(v, new_v)
@@ -393,6 +396,7 @@ def rollout_with_stats(
         render=False,
         video_dir=None,
         video_path=None,
+        gymgrasp_recording_dir=None,
         epoch=None,
         video_skip=5,
         terminate_on_success=False,
@@ -422,6 +426,8 @@ def rollout_with_stats(
         video_dir (str): if not None, dump rollout videos to this directory (one per environment)
 
         video_path (str): if not None, dump a single rollout video for all environments
+
+        gymgrasp_recording_dir (str): path to recordings for EnvGymGrasp
 
         epoch (int): epoch number (used for video naming)
 
@@ -468,9 +474,20 @@ def rollout_with_stats(
         ))
         rollout_logs = []
 
+        run_args = {
+            "policy": policy,
+            "env": env,
+            "horizon": horizon,
+            "render": render,
+            "use_goals": use_goals,
+            "video_writer": env_video_writer,
+            "video_skip": video_skip,
+            "terminate_on_success": terminate_on_success,
+        }
         if isinstance(env, EnvGymGrasp):
             assert num_episodes % env.no_envs == 0
             iterations = int(num_episodes/env.no_envs)
+            run_args["gymgrasp_recording_dir"] = gymgrasp_recording_dir
             run_fct = run_parallel_rollouts
         else:
             iterations = num_episodes
@@ -483,16 +500,7 @@ def rollout_with_stats(
         num_success = 0
         for ep_i in iterator:
             rollout_timestamp = time.time()
-            rollout_info = run_fct(
-                policy=policy,
-                env=env,
-                horizon=horizon,
-                render=render,
-                use_goals=use_goals,
-                video_writer=env_video_writer,
-                video_skip=video_skip,
-                terminate_on_success=terminate_on_success,
-            )
+            rollout_info = run_fct(**run_args)
             rollout_info["time"] = time.time() - rollout_timestamp
             rollout_logs.append(rollout_info)
             num_success += rollout_info["Success_Rate"]
