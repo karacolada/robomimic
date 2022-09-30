@@ -92,6 +92,7 @@ def train(config, device):
         env_meta["env_kwargs"]["task"]["env"]["numEnvs"] = config.experiment.rollout.n
         env_meta["env_kwargs"]["graphics_device_id"] = config.train.cuda_id
         env_meta["env_kwargs"]["task"]["train_dir"] = os.path.dirname(log_dir)
+        env_meta["env_kwargs"]["task"]["task"]["observationType"] = config.all_obs_keys
         if config.experiment.gymgrasp_recording:
             camera_0 = dict(type="rgb",
                             pos=[ -0.5, 0, 1.3 ],

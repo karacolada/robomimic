@@ -488,10 +488,10 @@ def normalize_obs(obs_dict, obs_normalization_stats):
         # check shape consistency
         shape_len_diff = len(mean.shape) - len(obs_dict[m].shape)
         assert shape_len_diff in [0, 1], "shape length mismatch in @normalize_obs"
-        assert mean.shape[shape_len_diff:] == obs_dict[m].shape, "shape mismatch in @normalize obs"
-
-        # handle case where obs dict is not batched by removing stats batch dimension
-        if shape_len_diff == 1:
+        if shape_len_diff == 0:  # batch dimension may be > 1 in obs_dict[m]
+            assert mean.shape[1:] == obs_dict[m].shape[1:], "shape mismatch in @normalize_obs"
+        elif shape_len_diff == 1:  # handle case where obs dict is not batched by removing stats batch dimension
+            assert mean.shape[shape_len_diff:] == obs_dict[m].shape, "shape mismatch in @normalize_obs"
             mean = mean[0]
             std = std[0]
 
