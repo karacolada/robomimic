@@ -56,9 +56,9 @@ sweep_config_vanilla = {
         "algo.critic.target_q_gap":{
             "values": [1.0, 5.0, 10.0]
         },
-        #"train.hdf5_normalize_obs": {
-        #    "values": [True, False]
-        #},
+        "train.hdf5_normalize_obs": {
+            "values": [True, False]
+        },
         "train.seq_length": {
             "values": [1, 2, 4, 10, 30]
         },  # will be applied to n_step
@@ -142,9 +142,9 @@ sweep_config_rnn = {
         "train.seq_length": {
             "values": [2, 4, 10, 30]
         },
-        #"train.hdf5_normalize_obs": {
-        #    "values": [True, False]
-        #},
+        "train.hdf5_normalize_obs": {
+            "values": [True, False]
+        },
         "train.batch_size": {
             "values": [100, 512, 1024]
         }
@@ -201,9 +201,9 @@ sweep_config_ext = {
         "train.seq_length": {
             "values": [2, 4, 10, 30]
         },
-        #"train.hdf5_normalize_obs": {
-        #    "values": [True, False]
-        #},
+        "train.hdf5_normalize_obs": {
+            "values": [True, False]
+        },
         "train.batch_size": {
             "values": [100, 512, 1024]
         }
