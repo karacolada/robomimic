@@ -23,23 +23,11 @@ sweep_config_vanilla = {
         "algo.target_tau": {
             "values": [0.005, 0.0005]
         },
-        "algo.actor.layer_1_dim": {
-            "values": [256, 512]
+        "algo.actor.layer_dims":{
+            "values": [(256, 256), (256, 512, 256), (512, 512)]
         },
-        "algo.actor.layer_2_dim": {
-            "values": [256, 512]
-        },
-        "algo.actor.layer_3_dim": {
-            "values": [0, 256, 512]
-        },
-        "algo.critic.layer_1_dim": {
-            "values": [256, 512]
-        },
-        "algo.critic.layer_2_dim": {
-            "values": [256, 512]
-        },
-        "algo.critic.layer_3_dim": {
-            "values": [0, 256, 512]
+        "algo.critic.layer_dims":{
+            "values": [(256, 256), (256, 512, 256), (512, 512)]
         },
         "algo.optim_params.critic.learning_rate.decay_factor": {
             "values": [0.0, 0.1]
@@ -94,23 +82,11 @@ sweep_config_rnn = {
         "algo.target_tau": {
             "values": [0.005, 0.0005]
         },
-        "algo.actor.layer_1_dim": {
-            "values": [256, 512]
+        "algo.actor.layer_dims":{
+            "values": [(256, 256), (256, 512, 256), (512, 512)]
         },
-        "algo.actor.layer_2_dim": {
-            "values": [256, 512]
-        },
-        "algo.actor.layer_3_dim": {
-            "values": [0, 256, 512]
-        },
-        "algo.critic.layer_1_dim": {
-            "values": [256, 512]
-        },
-        "algo.critic.layer_2_dim": {
-            "values": [256, 512]
-        },
-        "algo.critic.layer_3_dim": {
-            "values": [0, 256, 512]
+        "algo.critic.layer_dims":{
+            "values": [(256, 256), (256, 512, 256), (512, 512)]
         },
         "algo.optim_params.critic.learning_rate.decay_factor": {
             "values": [0.0, 0.1]
@@ -189,23 +165,11 @@ sweep_config_ext = {
         "algo.target_tau": {
             "values": [0.005, 0.0005]
         },
-        "algo.actor.layer_1_dim": {
-            "values": [256, 512]
+        "algo.actor.layer_dims":{
+            "values": [(256, 256), (256, 512, 256), (512, 512)]
         },
-        "algo.actor.layer_2_dim": {
-            "values": [256, 512]
-        },
-        "algo.actor.layer_3_dim": {
-            "values": [0, 256, 512]
-        },
-        "algo.critic.layer_1_dim": {
-            "values": [256, 512]
-        },
-        "algo.critic.layer_2_dim": {
-            "values": [256, 512]
-        },
-        "algo.critic.layer_3_dim": {
-            "values": [0, 256, 512]
+        "algo.critic.layer_dims":{
+            "values": [(256, 256), (256, 512, 256), (512, 512)]
         },
         "algo.optim_params.critic.learning_rate.decay_factor": {
             "values": [0.0, 0.1]

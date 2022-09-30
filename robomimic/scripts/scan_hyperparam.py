@@ -35,19 +35,6 @@ def apply_wandb_conf(config, wandb_config, run_id):
     for m in ["actor", "critic"]:
         if wandb_config[f"algo.{m}.max_gradient_norm"] == -1:
             wandb_config[f"algo.{m}.max_gradient_norm"] = None
-    # adjust layer dims
-    for m in ["actor", "critic"]:
-        layer_dims = [wandb_config.pop(f"algo.{m}.layer_{i}_dim") for i in [1, 2, 3]]
-        if layer_dims[2] == 0: # no third layer
-            layer_dims = layer_dims[:2]
-        if variant == "rnn":
-            if m == "actor":
-                remove_mlp = wandb_config.pop("algo.actor.net.rnn.remove_mlp")
-            elif m == "critic":
-                remove_mlp = wandb_config.pop("algo.critic.rnn.remove_mlp")
-            if remove_mlp:
-                layer_dims = []
-        wandb_config[f"algo.{m}.layer_dims"] = layer_dims
     # lr decay scheduler
     for m in ["actor", "critic"]:
         decay_factor = wandb_config[f"algo.optim_params.{m}.learning_rate.decay_factor"]
