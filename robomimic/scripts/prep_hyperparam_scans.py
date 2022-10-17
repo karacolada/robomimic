@@ -11,61 +11,28 @@ from robomimic.scripts.train import train
 
 sweep_config_vanilla = {
     "name": "sweep-vanilla",
-    "method": "random",
+    "method": "grid",
     "program": "scan_hyperparam.py",
     "parameters": {
         "algo.optim_params.critic.learning_rate.initial": {
-            "values": [1e-5, 1e-4, 1e-3, 1e-2, 3e-5, 3e-4, 3e-3, 3e-2]
+            "values": [1e-5, 3e-4]
         },
         "algo.optim_params.actor.learning_rate.initial": {
-            "values": [1e-5, 1e-4, 1e-3, 1e-2, 3e-5, 3e-4, 3e-3, 3e-2]
-        },
-        "algo.target_tau": {
-            "values": [0.005, 0.0005]
+            "values": [1e-2, 3e-5, 3e-3]
         },
         "algo.actor.layer_dims":{
-            "values": [(256, 256), (256, 512, 256), (512, 512)]
+            "values": [(256, 256), (256, 512, 256)]
         },
         "algo.critic.layer_dims":{
-            "values": [(256, 256), (256, 512, 256), (512, 512)]
-        },
-        "algo.optim_params.critic.learning_rate.decay_factor": {
-            "values": [0.0, 0.1]
-        },
-        "algo.optim_params.critic.regularization.L2": {
-            "values": [0.00, 0.01, 0.1]
-        },  # L2 regularization strength, weight decay
-        "algo.optim_params.actor.learning_rate.decay_factor": {
-            "values": [0.0, 0.1]
-        },
-        "algo.optim_params.actor.regularization.L2": {
-            "values": [0.00, 0.01, 0.1]
-        },  # L2 regularization strength, weight decay
-        "algo.actor.max_gradient_norm": {
-            "values": [-1, 0.5]
-        }, # L2 gradient clipping for actor, probably shouldn't use with weight decay i.e. L2 regularisation
-        "algo.critic.use_huber": {
-            "values": [True, False]
-        },
-        "algo.critic.max_gradient_norm": {
-            "values": [-1, 0.5]
-        },
-        "algo.critic.num_action_samples": {
-            "values": [1, 2, 4, 10, 30]
+            "values": [(256, 256), (512, 512)]
         },
         "algo.critic.target_q_gap":{
-            "values": [1.0, 5.0, 10.0]
+            "values": [1.0, 5.0]
         },
-        "train.hdf5_normalize_obs": {
-            "values": [True, False],
-            "probabilities": [0.2, 0.8]  # low probability bc. we need to disable validation
-        },
-        "train.seq_length": {
-            "values": [1, 2, 4, 10, 30]
-        },  # will be applied to n_step
-        "train.batch_size": {
-            "values": [100, 512, 1024]
-        }
+        #"train.hdf5_normalize_obs": {
+        #    "values": [True, False],
+        #    #"probabilities": [0.2, 0.8]  # low probability bc. we need to disable validation
+        #}
     }
 }
 
