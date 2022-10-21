@@ -2,7 +2,6 @@ import wandb
 import isaacgym
 import json
 import traceback
-import time
 
 from robomimic.config import config_factory
 import robomimic.utils.torch_utils as TorchUtils
@@ -32,20 +31,25 @@ def nested_wandb(config):
     return new_wandb
 
 def apply_wandb_conf(config, wandb_config, run_id):
-    # irrelevant for new smaller sweeps
-    #if suite == "gym-grasp":
-    #    # clear up max_gradient_clipping
-    #    for m in ["actor", "critic"]:
-    #        if wandb_config[f"algo.{m}.max_gradient_norm"] == -1:
-    #            wandb_config[f"algo.{m}.max_gradient_norm"] = None
-    #    # lr decay scheduler
-    #    for m in ["actor", "critic"]:
-    #        decay_factor = wandb_config[f"algo.optim_params.{m}.learning_rate.decay_factor"]
-    #        if decay_factor > 0:
-    #            wandb_config[f"algo.optim_params.{m}.learning_rate.epoch_schedule"] = [200, 400, 600, 800]
-    #    # observation normalisation does not work with validation
-    #    if wandb_config["train.hdf5_normalize_obs"]:
-    #        wandb_config["experiment.validate"] = False
+    if suite == "gym-grasp":
+        # clear up max_gradient_clipping
+        #for m in ["actor", "critic"]:
+        #    if wandb_config[f"algo.{m}.max_gradient_norm"] == -1:
+        #        wandb_config[f"algo.{m}.max_gradient_norm"] = None
+        # lr decay scheduler
+        try:
+            for m in ["actor", "critic"]:
+                decay_factor = wandb_config[f"algo.optim_params.{m}.learning_rate.decay_factor"]
+                if decay_factor > 0:
+                    wandb_config[f"algo.optim_params.{m}.learning_rate.epoch_schedule"] = [200, 400, 600, 800]
+        except KeyError:
+            pass
+        # observation normalisation does not work with validation
+        try:
+            if wandb_config["train.hdf5_normalize_obs"]:
+                wandb_config["experiment.validate"] = False
+        except KeyError:
+            pass
     # RNN drop MLP
     if variant == "rnn":
         actor_remove_mlp = wandb_config.pop("algo.actor.net.rnn.remove_mlp")
@@ -60,8 +64,11 @@ def apply_wandb_conf(config, wandb_config, run_id):
         wandb_config["algo.critic.rnn.horizon"] = wandb_config["train.seq_length"]
     elif variant == "ext":
         wandb_config["algo.ext.history_length"] = wandb_config["train.seq_length"]
-    #elif variant == "vanilla":
-    #    wandb_config["algo.n_step"] = wandb_config["train.seq_length"]
+    elif variant == "vanilla":
+        try:
+            wandb_config["algo.n_step"] = wandb_config["train.seq_length"]
+        except KeyError:
+            pass
     # adjust log directory
     wandb_config["experiment.name"] = config["experiment"]["name"] + "_" + run_id
     # adjust config

@@ -1,15 +1,53 @@
 import argparse
 import wandb
 import isaacgym
-import json
-import traceback
-import time
-
-from robomimic.config import config_factory
-import robomimic.utils.torch_utils as TorchUtils
-from robomimic.scripts.train import train
 
 sweep_config_vanilla = {
+    "name": "sweep-vanilla",
+    "method": "random",
+    "program": "scan_hyperparam.py",
+    "parameters": {
+        "algo.optim_params.critic.learning_rate.initial": {
+            "values": [1e-5, 1e-4, 1e-3, 1e-2, 3e-5, 3e-4, 3e-3, 3e-2]
+        },
+        "algo.optim_params.actor.learning_rate.initial": {
+            "values": [1e-5, 1e-4, 1e-3, 1e-2, 3e-5, 3e-4, 3e-3, 3e-2]
+        },
+        "algo.target_tau": {
+            "values": [0.005, 0.0005]
+        },
+        "algo.actor.layer_dims":{
+            "values": [(256, 256), (256, 512, 256), (512, 512)]
+        },
+        "algo.critic.layer_dims":{
+            "values": [(256, 256), (256, 512, 256), (512, 512)]
+        },
+        "algo.optim_params.critic.learning_rate.decay_factor": {
+            "values": [0.0, 0.1]
+        },
+        "algo.optim_params.actor.learning_rate.decay_factor": {
+            "values": [0.0, 0.1]
+        },
+        "algo.critic.num_action_samples": {
+            "values": [1, 2, 4, 10, 30]
+        },
+        "algo.critic.target_q_gap":{
+            "values": [1.0, 5.0, 10.0]
+        },
+        #"train.hdf5_normalize_obs": {
+        #    "values": [True, False],
+        #    "probabilities": [0.2, 0.8]  # low probability bc. we need to disable validation
+        #},
+        "train.seq_length": {
+            "values": [1, 2, 4, 10, 30]
+        },  # will be applied to n_step
+        #"train.batch_size": {
+        #    "values": [100, 512, 1024]
+        #}
+    }
+}
+
+sweep_config_vanilla_reduced = {
     "name": "sweep-vanilla",
     "method": "grid",
     "program": "scan_hyperparam.py",
@@ -244,14 +282,17 @@ sweep_config_robomimic_ext = {
     }
 }
 
-def register_sweep(suite, variant, task):
+def register_sweep(suite, variant, task, reduced):
     if "gym-grasp" in suite:
         if suite == "gym-grasp-human":
             project = f"thesis-human-{task}"
         elif suite == "gym-grasp-mg":
             project = f"thesis-mg-{task}"
         if variant == "vanilla":
-            sweep_cfg = sweep_config_vanilla
+            if reduced:
+                sweep_cfg = sweep_config_vanilla_reduced
+            else:
+                sweep_cfg = sweep_config_vanilla
         elif variant == "rnn":
             sweep_cfg = sweep_config_rnn
         elif variant == "ext":
@@ -300,5 +341,13 @@ if __name__ == "__main__":
         help="one of OpenDrawer, OpenDoor, PourCup",
     )
 
+    parser.add_argument(
+        "--reduced",
+        required=False,
+        action="store_true",
+        default=False,
+        help="optional, only available for gym-grasp + vanilla, choose whether to sweep only the reduced set of parameters in a grid search instead of the full set in a random search"
+    )
+
     args = parser.parse_args()
-    register_sweep(args.suite, args.variant, args.task)
+    register_sweep(args.suite, args.variant, args.task, args.reduced)
