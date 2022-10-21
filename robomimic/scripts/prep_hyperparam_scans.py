@@ -97,36 +97,25 @@ sweep_config_rnn = {
         "algo.optim_params.critic.learning_rate.decay_factor": {
             "values": [0.0, 0.1]
         },
-        "algo.optim_params.critic.regularization.L2": {
-            "values": [0.00, 0.01, 0.1]
-        },
         "algo.optim_params.actor.learning_rate.decay_factor": {
             "values": [0.0, 0.1]
         },
-        "algo.optim_params.actor.regularization.L2": {
-            "values": [0.00, 0.01, 0.1]
-        },  # L2 regularization strength, weight decay
-        "algo.actor.max_gradient_norm": {
-            "values": [-1, 0.5]
+        "algo.actor.net.rnn.layer_dims": {
+            "values": [(0), (256), (256, 256), (256, 256, 256), (512), (512, 512), (512, 512, 512)],
+            "probabilities": [0.4, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]  # ensure enough cases with non-recurrent actor
         },
-        "algo.actor.net.rnn.enabled": {
-            "values": [True, False]
-        },
-        "algo.actor.net.rnn.hidden_dim": {
-            "values": [256, 512]
-        },
-        "algo.actor.net.rnn.num_layers": {
-            "values": [1, 2, 3]
-        },
+        #"algo.actor.net.rnn.enabled": {
+        #    "values": [True, False]
+        #},
+        #"algo.actor.net.rnn.hidden_dim": {
+        #    "values": [256, 512]
+        #},
+        #"algo.actor.net.rnn.num_layers": {
+        #    "values": [1, 2, 3]
+        #},
         "algo.actor.net.rnn.remove_mlp": {
             "values": [True, False]
         },  # use to ignore given MLP layers
-        "algo.critic.use_huber": {
-            "values": [True, False]
-        },
-        "algo.critic.max_gradient_norm": {
-            "values": [-1, 0.5]
-        },
         "algo.critic.num_action_samples": {
             "values": [1, 2, 4, 10, 30]
         },
@@ -139,22 +128,25 @@ sweep_config_rnn = {
         "algo.critic.rnn.shared": {
             "values": [True, False]
         },
-        "algo.critic.rnn.hidden_dim": {
-            "values": [256, 512]
+        "algo.critic.rnn.layer_dims": {
+            "values": [(256), (256, 256), (256, 256, 256), (512), (512, 512), (512, 512, 512)]
         },
-        "algo.critic.rnn.num_layers": {
-            "values": [1, 2, 3]
-        },
+        #"algo.critic.rnn.hidden_dim": {
+        #    "values": [256, 512]
+        #},
+        #"algo.critic.rnn.num_layers": {
+        #    "values": [1, 2, 3]
+        #},
         "train.seq_length": {
             "values": [2, 4, 10, 30]
         },
-        "train.hdf5_normalize_obs": {
-            "values": [True, False],
-            "probabilities": [0.2, 0.8]  # low probability bc. we need to disable validation
-        },
-        "train.batch_size": {
-            "values": [100, 512, 1024]
-        }
+        #"train.hdf5_normalize_obs": {
+        #    "values": [True, False],
+        #    "probabilities": [0.2, 0.8]  # low probability bc. we need to disable validation
+        #},
+        #"train.batch_size": {
+        #    "values": [100, 512, 1024]
+        #}
     }
 }
 

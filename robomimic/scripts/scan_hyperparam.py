@@ -52,12 +52,24 @@ def apply_wandb_conf(config, wandb_config, run_id):
             pass
     # RNN drop MLP
     if variant == "rnn":
+        # remove MLP
         actor_remove_mlp = wandb_config.pop("algo.actor.net.rnn.remove_mlp")
         critic_remove_mlp = wandb_config.pop("algo.critic.rnn.remove_mlp")
         if critic_remove_mlp:
             wandb_config["algo.critic.layer_dims"] = ()
         if actor_remove_mlp and wandb_config["algo.actor.net.rnn.enabled"]:
             wandb_config["algo.actor.layer_dims"] = ()
+        # RNN layer config
+        actor_rnn_layers = wandb_config.pop("algo.actor.net.rnn.layer_dims")
+        if actor_rnn_layers == (0):
+            wandb_config["algo.actor.net.rnn.enabled"] = False
+        else:
+            wandb_config["algo.actor.net.rnn.enabled"] = False
+            wandb_config["algo.actor.net.rnn.hidden_dim"] = actor_rnn_layers[0]
+            wandb_config["algo.actor.net.rnn.num_layers"] = len(actor_rnn_layers)
+        critic_rnn_layers = wandb_config.pop("algo.critic.rnn.layer_dims")
+        wandb_config["algo.critic.rnn.hidden_dim"] = critic_rnn_layers[0]
+        wandb_config["algo.critic.rnn.num_layers"] = len(critic_rnn_layers)
     # sequence length
     if variant == "rnn":
         wandb_config["algo.actor.net.rnn.horizon"] = wandb_config["train.seq_length"]
