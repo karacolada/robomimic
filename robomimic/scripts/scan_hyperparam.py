@@ -33,9 +33,12 @@ def nested_wandb(config):
 def apply_wandb_conf(config, wandb_config, run_id):
     if suite == "gym-grasp":
         # clear up max_gradient_clipping
-        #for m in ["actor", "critic"]:
-        #    if wandb_config[f"algo.{m}.max_gradient_norm"] == -1:
-        #        wandb_config[f"algo.{m}.max_gradient_norm"] = None
+        try:
+            for m in ["actor", "critic"]:
+                if wandb_config[f"algo.{m}.max_gradient_norm"] == -1:
+                    wandb_config[f"algo.{m}.max_gradient_norm"] = None
+        except KeyError:
+            pass
         # lr decay scheduler
         try:
             for m in ["actor", "critic"]:
