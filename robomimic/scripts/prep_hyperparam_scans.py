@@ -215,21 +215,27 @@ sweep_config_robomimic_rnn = {
     "method": "random",
     "program": "scan_hyperparam.py",    
     "parameters": {
-        "algo.optim_params.critic.regularization.L2": {
-            "values": [0.00, 0.01, 0.1]
+        # run as specifics
+        #"algo.optim_params.critic.regularization.L2": {
+        #    "values": [0.00, 0.01, 0.1]
+        #},
+        #"algo.optim_params.actor.regularization.L2": {
+        #    "values": [0.00, 0.01, 0.1]
+        #},  # L2 regularization strength, weight decay
+        "algo.actor.net.rnn.layer_dims": {
+            "values": [(0), (256), (256, 256), (256, 256, 256), (512), (512, 512), (512, 512, 512)],
+            "probabilities": [0.4, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]  # ensure enough cases with non-recurrent actor
         },
-        "algo.optim_params.actor.regularization.L2": {
-            "values": [0.00, 0.01, 0.1]
-        },  # L2 regularization strength, weight decay
-        "algo.actor.net.rnn.enabled": {
-            "values": [True, False]
-        },
-        "algo.actor.net.rnn.hidden_dim": {
-            "values": [256, 512]
-        },
-        "algo.actor.net.rnn.num_layers": {
-            "values": [1, 2, 3]
-        },
+        # not needed anymore
+        #"algo.actor.net.rnn.enabled": {
+        #    "values": [True, False]
+        #},
+        #"algo.actor.net.rnn.hidden_dim": {
+        #    "values": [256, 512]
+        #},
+        #"algo.actor.net.rnn.num_layers": {
+        #    "values": [1, 2, 3]
+        #},
         "algo.actor.net.rnn.remove_mlp": {
             "values": [True, False]
         },  # use to ignore given MLP layers
@@ -239,12 +245,16 @@ sweep_config_robomimic_rnn = {
         "algo.critic.rnn.shared": {
             "values": [True, False]
         },
-        "algo.critic.rnn.hidden_dim": {
-            "values": [256, 512]
+        "algo.critic.rnn.layer_dims": {
+            "values": [(256), (256, 256), (256, 256, 256), (512), (512, 512), (512, 512, 512)]
         },
-        "algo.critic.rnn.num_layers": {
-            "values": [1, 2, 3]
-        },
+        # not needed anymore
+        #"algo.critic.rnn.hidden_dim": {
+        #    "values": [256, 512]
+        #},
+        #"algo.critic.rnn.num_layers": {
+        #    "values": [1, 2, 3]
+        #},
         "train.seq_length": {
             "values": [2, 4, 10, 30]
         }
@@ -262,12 +272,13 @@ sweep_config_robomimic_ext = {
         "algo.critic.layer_dims":{
             "values": [(256, 256), (256, 512, 256), (512, 512)]
         },
-        "algo.optim_params.critic.regularization.L2": {
-            "values": [0.00, 0.01, 0.1]
-        },
-        "algo.optim_params.actor.regularization.L2": {
-            "values": [0.00, 0.01, 0.1]
-        },  # L2 regularization strength, weight decay
+        # run as specifics
+        #"algo.optim_params.critic.regularization.L2": {
+        #    "values": [0.00, 0.01, 0.1]
+        #},
+        #"algo.optim_params.actor.regularization.L2": {
+        #    "values": [0.00, 0.01, 0.1]
+        #},  # L2 regularization strength, weight decay
         "train.seq_length": {
             "values": [2, 4, 10, 30]
         }

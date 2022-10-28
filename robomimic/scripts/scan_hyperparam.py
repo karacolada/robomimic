@@ -67,14 +67,12 @@ def apply_wandb_conf(config, wandb_config, run_id):
         if actor_rnn_layers == (0):
             wandb_config["algo.actor.net.rnn.enabled"] = False
         else:
-            wandb_config["algo.actor.net.rnn.enabled"] = False
+            wandb_config["algo.actor.net.rnn.enabled"] = True
             wandb_config["algo.actor.net.rnn.hidden_dim"] = actor_rnn_layers[0]
             wandb_config["algo.actor.net.rnn.num_layers"] = len(actor_rnn_layers)
         critic_rnn_layers = wandb_config.pop("algo.critic.rnn.layer_dims")
         wandb_config["algo.critic.rnn.hidden_dim"] = critic_rnn_layers[0]
         wandb_config["algo.critic.rnn.num_layers"] = len(critic_rnn_layers)
-    # sequence length
-    if variant == "rnn":
         wandb_config["algo.actor.net.rnn.horizon"] = wandb_config["train.seq_length"]
         wandb_config["algo.critic.rnn.horizon"] = wandb_config["train.seq_length"]
     elif variant == "ext":
