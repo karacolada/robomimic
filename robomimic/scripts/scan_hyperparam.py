@@ -56,15 +56,18 @@ def apply_wandb_conf(config, wandb_config, run_id):
     # RNN drop MLP
     if variant == "rnn":
         # remove MLP
-        actor_remove_mlp = wandb_config.pop("algo.actor.net.rnn.remove_mlp")
-        critic_remove_mlp = wandb_config.pop("algo.critic.rnn.remove_mlp")
-        if critic_remove_mlp:
-            wandb_config["algo.critic.layer_dims"] = ()
-        if actor_remove_mlp and wandb_config["algo.actor.net.rnn.enabled"]:
-            wandb_config["algo.actor.layer_dims"] = ()
+        try:
+            actor_remove_mlp = wandb_config.pop("algo.actor.net.rnn.remove_mlp")
+            critic_remove_mlp = wandb_config.pop("algo.critic.rnn.remove_mlp")
+            if critic_remove_mlp:
+                wandb_config["algo.critic.layer_dims"] = ()
+            if actor_remove_mlp and wandb_config["algo.actor.net.rnn.enabled"]:
+                wandb_config["algo.actor.layer_dims"] = ()
+        except KeyError:
+            pass
         # RNN layer config
         actor_rnn_layers = wandb_config.pop("algo.actor.net.rnn.layer_dims")
-        if actor_rnn_layers == (0):
+        if actor_rnn_layers[0] == 0:
             wandb_config["algo.actor.net.rnn.enabled"] = False
         else:
             wandb_config["algo.actor.net.rnn.enabled"] = True
