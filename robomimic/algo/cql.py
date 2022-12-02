@@ -1492,7 +1492,7 @@ class CQL_EXT(CQL):
         """
         assert not self.nets.training
         self._build_obs_history(obs_dict, "critic")
-        if self._obs_history_length["actor"] < self.algo_config.ext.history_length:
+        if self._obs_history_length["critic"] < self.algo_config.ext.history_length:
             # recognise batches
             for k in self.obs_shapes.keys():
                 batch_dim = []
